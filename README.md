@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-A growing collection of plugins for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), installed as one bundle. The current release serves the dsh Web UI through a **non-localhost authority** — a reverse proxy, SSH tunnel, or LAN address — without patching the installed dsh, and adds browser notifications plus a workspace token-usage page.
+A growing collection of plugins for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), installed as one bundle. The current release serves the dsh Web UI through a **non-localhost authority** — a reverse proxy, SSH tunnel, or LAN address — without patching the installed dsh, and adds browser notifications, a workspace token-usage page, and a composer where Enter inserts a line break.
 
 [中文文档](./README.zh-CN.md)
 
@@ -159,7 +159,7 @@ the first click or keypress; grant it for the deployment origin. Clicking a
 notification brings the dsh window back to the foreground. Subagent and removed
 sessions are skipped, and an unknown or not-yet-listed Session is never guessed
 into a notification. Set `notifications: false` in the plugin config to turn the
-client half off.
+notification half off (the composer Enter rewrite stays active).
 
 Limitations: this uses page Web Notifications, not Web Push. The dsh page must
 stay open in a tab (it may be backgrounded); a fully closed browser receives
@@ -200,6 +200,17 @@ The page reads `GET /dsh-dev-plugins/stats/data?from=<ms>&to=<ms>&tz=<IANA>`
 applies the same trusted-authority and launch-token cookie checks as `/api`; it
 returns only token totals, workspace paths, and day keys, never message content.
 
+### Composer: Enter inserts a line break
+
+The dsh chat composer submits on Enter and inserts a line break on Shift+Enter.
+This bundle flips the plain Enter key: it now inserts a line break, and a
+message is sent with Cmd/Ctrl+Enter or the Send button. The rewrite targets the
+composer's Lexical editor only — a plain Enter in any other input, and Enter
+while a slash-command, mention, or file menu is open, keep their stock
+behaviour, and IME composition is left alone. The rewrite is unconditional:
+there is no plugin-config switch. While a session is running, the keyboard send
+uses dsh's accelerated submit, so it does not follow the busy-Enter queue/steer
+preference the Send button still honours.
 
 ## How it works
 
@@ -244,6 +255,8 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - **The statistics route exposes usage metadata.** It is authenticated with the same launch-token cookie and trusted-authority fence as `/api`, and it returns only per-workspace and per-day token totals plus workspace paths — never prompts, responses, or tool arguments. Anyone with the owner credential already has the full UI; `statsPage: false` removes the route.
 - **Do not add a CSP that blocks inline scripts.** The loopback row is an inline classic script; dsh's own boot globals already require inline script permission, but a proxy-injected CSP without `'unsafe-inline'` (or a nonce covering it) silently blocks the row while the page still loads.
 
+7. **Composer Enter — client capture listener.** The client half installs one capture-phase `keydown` listener on the page document. A plain Enter inside the composer's Lexical editor (`[data-composer-card]` containing `[data-lexical-editor="true"]`) is cancelled and replayed as the Shift+Enter chord the stock composer already maps to a line break; Cmd/Ctrl+Enter still submits. The rewrite is skipped while a slash-command, mention, or file menu (`[data-trigger-menu]`) is open, and during IME composition.
+
 ## Compatibility
 
 - Tested against dsh `0.2.1-rc.2`, `0.2.1-rc.3`, and `0.2.0-rc.2` (Web profile).
@@ -252,6 +265,7 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - The plugin row is Web-profile only; in a profile without a `connection` service the row stays inactive, so installing it there achieves nothing.
 - `npm install -g @deepseek-ai/dsh@<version>` replaces the dsh install but not the profile: the plugin keeps working after a dsh upgrade. Restart `dsh web` to load a new dsh version.
 - The token seam reads `connection.browserAuth.launchToken`. If dsh changes that shape, the plugin throws at boot when a token is configured; unset the token or update the plugin.
+- The composer Enter rewrite depends on dsh-internal DOM markers (`[data-composer-card]`, `[data-lexical-editor="true"]`, `[data-trigger-menu]`). If a future dsh release renames them, the listener finds no composer and silently no-ops, restoring stock Enter-sends; it never breaks the page.
 - The login form wraps `connection.authorizeIndex` and reads `browserAuth.isAuthenticated`. If a future dsh version removes either, the form is skipped and the bare URL answers the stock plain `401`; the rest of the plugin keeps working.
 - Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription.
 - Token statistics need `ctx.sessionQuery` (`listSessions` and `readSession`), `ctx.workspaceRegistry` (optional; an absent registry falls back to per-directory grouping), and `ctx.webServer.register`. When the session query service is missing, the data route answers `503` and the panel shows its load error.

@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知和工作区 token 用量页。
+一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知、工作区 token 用量页，以及回车换行的输入框。
 
 [English](./README.md)
 
@@ -122,7 +122,7 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 多个标签页通过 localStorage 协调：聚焦标签页发布自己正在查看的会话，其他标签页对该会话不再发通知，并用认领机制避免隐藏标签页重复通知。客户端每 15 秒获取一次服务端 boot manifest，插件 bundle 版本变化时自动 reload，避免热更新后旧页面继续跑旧通知逻辑（首次引入该检查的这一版仍需手动刷新一次）。如果窗口期内会话因重试、排队的后续消息或新的待处理输入重新运行，通知会被取消，避免“失败后马上重试”这类无效通知。
 
-只有页面不可见或窗口失去焦点时才通知，且必须先获得浏览器的通知权限。页面会在第一次点击/按键时请求一次权限（按来源授权）。点击通知会把 dsh 窗口切到前台。子代理会话和已移除会话会被跳过，未知或尚未出现在列表中的会话不会被猜测成通知。插件配置 `notifications: false` 可关闭客户端半边。
+只有页面不可见或窗口失去焦点时才通知，且必须先获得浏览器的通知权限。页面会在第一次点击/按键时请求一次权限（按来源授权）。点击通知会把 dsh 窗口切到前台。子代理会话和已移除会话会被跳过，未知或尚未出现在列表中的会话不会被猜测成通知。插件配置 `notifications: false` 可关闭通知半边（输入框回车改写仍然生效）。
 
 限制：这里用的是页面级 Web Notification，不是 Web Push。dsh 页面必须保持打开（可以切到后台）；浏览器完全关闭后不会收到通知。通知权限需要安全上下文，因此使用 HTTPS 或 loopback，局域网纯 HTTP 不行。通知正文包含会话标题，锁屏预览可能暴露它。
 
@@ -140,6 +140,10 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 首次打开会扫描全部历史，可能需要几秒；之后的请求复用按会话的折叠缓存，由实时 `session/event` 标脏增量更新。页面上的 **刷新** 按钮会强制全量重扫。用量归属于结算事件所在的本地日期，因此跨午夜的 Turn 计入结算当天。设置 `statsPage: false` 可同时移除侧边栏页面和数据路由。
 
 页面读取 `GET /dsh-dev-plugins/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
+
+### 输入框：回车换行
+
+dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普通回车改为换行，发送改用 Cmd/Ctrl+回车或发送按钮。改写只作用于聊天输入框的 Lexical 编辑器：其他输入框的回车、以及斜杠命令/提及/文件菜单打开时的回车都保持上游行为；被改写的按键不会发送消息，输入法组词期间也不处理。该改写没有配置开关，始终生效。会话运行中时，键盘发送走 dsh 的加速提交路径，因此不会遵循发送按钮仍然遵循的排队/插话偏好。
 
 ## 工作原理
 
@@ -172,6 +176,8 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 - **统计路由会暴露用量元数据。** 它与 `/api` 使用同一套启动令牌 Cookie 和受信任权威围栏；返回内容只有按工作区/按天的 token 总量和工作区路径，不含提示词、回复或工具参数。持有 owner 凭据的人本来就能看到完整界面；`statsPage: false` 可移除该路由。
 - **不要新增会拦截内联脚本的 CSP。** 回环视图行是一段内联经典脚本；dsh 自身的启动全局变量已经要求内联脚本权限，但代理注入的不含 `'unsafe-inline'`（或未用 nonce 覆盖）的 CSP 会静默拦截该脚本，而页面仍能加载。
 
+7. **输入框回车 —— 客户端捕获监听。** 客户端半边在页面 document 上安装一个捕获阶段的 `keydown` 监听器。位于聊天输入框 Lexical 编辑器内（`[data-composer-card]` 中的 `[data-lexical-editor="true"]`）的普通回车会被取消，并重放成上游已经映射为换行的 Shift+回车；Cmd/Ctrl+回车仍然发送。斜杠命令、提及或文件菜单（`[data-trigger-menu]`）打开时，以及输入法组词期间，不执行改写。
+
 ## 兼容性
 
 - 已在 dsh `0.2.1-rc.2`、`0.2.1-rc.3` 与 `0.2.0-rc.2` 的 Web profile 上验证。
@@ -180,6 +186,7 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 - 插件行仅适用于 Web profile；没有 `connection` 服务的 profile 中该行保持 inactive，安装也不会生效。
 - `npm install -g @deepseek-ai/dsh@<version>` 升级 dsh 不会改动 profile，插件继续可用；升级后重启 `dsh web` 即加载新版本。
 - 固定令牌依赖 `connection.browserAuth.launchToken` 字段。若 dsh 改变该结构，配置了令牌时插件会在启动阶段报错；取消令牌配置或升级插件即可。
+- 输入框回车改写依赖 dsh 内部 DOM 标记（`[data-composer-card]`、`[data-lexical-editor="true"]`、`[data-trigger-menu]`）。若未来 dsh 改名，监听器找不到输入框便静默失效，恢复上游“回车发送”，不会破坏页面。
 - 登录表单包装 `connection.authorizeIndex` 并读取 `browserAuth.isAuthenticated`。若未来 dsh 移除二者，表单会被跳过，裸地址恢复上游纯文本 `401`，插件其余功能继续工作。
 - 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。
 - Token 统计依赖 `ctx.sessionQuery`（`listSessions` 与 `readSession`）、`ctx.workspaceRegistry`（可选；缺失时回退为按目录分组）以及 `ctx.webServer.register`。会话查询服务缺失时，数据路由返回 `503`，页面显示加载错误。

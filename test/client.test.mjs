@@ -379,7 +379,7 @@ test('apply subscribes to sessionStatus and notifies after the idle settle delay
     t.mock.timers.tick(client.__test.SETTLE_MS)
     assert.equal(FakeNotification.sent.length, 1)
     assert.match(FakeNotification.sent[0].title, /Task finished: Background task/u)
-    assert.equal(fixture.ctx.disposers.length, 3)
+    assert.equal(fixture.ctx.disposers.length, 4)
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
     browser.restore()
@@ -499,14 +499,15 @@ test('syncViewing publishes the focused main session and currentMainSessionId fi
   }
 })
 
-test('apply is a no-op when the browser has no Notification API', async () => {
+test('apply without a Notification API installs only the composer rewrite', async () => {
   const client = await loadClientBundle()
   const previous = globalThis.Notification
   delete globalThis.Notification
   try {
     const fixture = fakeContext()
     client.apply(fixture.ctx)
-    assert.equal(fixture.ctx.disposers.length, 0)
+    assert.equal(fixture.ctx.disposers.length, 1)
+    fixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
     globalThis.Notification = previous
   }
@@ -617,5 +618,167 @@ test('a disabled host statistics switch installs no panel', async () => {
     if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
     else globalThis.__DSH_DEV_PLUGINS_STATS__ = previous
     browser.restore()
+  }
+})
+
+/** Minimal KeyboardEvent stand-in for the replay assertion. */
+class FakeKeyboardEvent {
+  constructor(type, init) {
+    this.type = type
+    Object.assign(this, init)
+  }
+}
+
+/** Fake page document that records the capture keydown listeners. */
+function composerDocument() {
+  const listeners = new Set()
+  return {
+    listeners,
+    addEventListener(type, listener, capture) {
+      assert.equal(type, 'keydown')
+      assert.equal(capture, true)
+      listeners.add(listener)
+    },
+    removeEventListener(type, listener) {
+      listeners.delete(listener)
+    },
+  }
+}
+
+/** Fake keydown target: a Lexical composer editor inside the composer card. */
+function composerTarget({ menuOpen = false } = {}) {
+  const dispatched = []
+  const card = {
+    querySelector: (selector) => (selector === '[data-trigger-menu]' && menuOpen ? { selector } : null),
+  }
+  const editor = {
+    closest(selector) {
+      if (selector === '[data-lexical-editor="true"]') return editor
+      if (selector === '[data-composer-card]') return card
+      return null
+    },
+    dispatchEvent(event) {
+      dispatched.push(event)
+      return true
+    },
+  }
+  const target = {
+    closest: (selector) => (selector === '[data-lexical-editor="true"]' ? editor : null),
+    dispatchEvent(event) {
+      dispatched.push(event)
+      return true
+    },
+  }
+  return { target, dispatched }
+}
+
+/** Keydown event stand-in with the flags the rewrite inspects. */
+function keydownEvent(target, overrides = {}) {
+  const event = {
+    key: 'Enter',
+    keyCode: 13,
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    isComposing: false,
+    target,
+    prevented: false,
+    stopped: false,
+    preventDefault() {
+      event.prevented = true
+    },
+    stopImmediatePropagation() {
+      event.stopped = true
+    },
+    ...overrides,
+  }
+  return event
+}
+
+test('plain Enter in the chat composer becomes a line break, not a send', async () => {
+  const client = await loadClientBundle()
+  const previous = globalThis.KeyboardEvent
+  globalThis.KeyboardEvent = FakeKeyboardEvent
+  try {
+    const document = composerDocument()
+    const { target, dispatched } = composerTarget()
+    const dispose = client.__test.installComposerEnterNewline(document)
+    assert.equal(document.listeners.size, 1)
+    const event = keydownEvent(target)
+    for (const listener of document.listeners) listener(event)
+    assert.equal(event.prevented, true)
+    assert.equal(event.stopped, true)
+    assert.equal(dispatched.length, 1)
+    assert.equal(dispatched[0].type, 'keydown')
+    assert.equal(dispatched[0].key, 'Enter')
+    assert.equal(dispatched[0].shiftKey, true)
+    assert.equal(dispatched[0].bubbles, true)
+    dispose()
+    assert.equal(document.listeners.size, 0)
+  } finally {
+    if (previous === undefined) delete globalThis.KeyboardEvent
+    else globalThis.KeyboardEvent = previous
+  }
+})
+
+test('composer Enter rewrite leaves modifier chords and IME composition alone', async () => {
+  const client = await loadClientBundle()
+  const previous = globalThis.KeyboardEvent
+  globalThis.KeyboardEvent = FakeKeyboardEvent
+  try {
+    const document = composerDocument()
+    const { target, dispatched } = composerTarget()
+    client.__test.installComposerEnterNewline(document)
+    const cases = [
+      { ctrlKey: true },
+      { metaKey: true },
+      { altKey: true },
+      { shiftKey: true },
+      { isComposing: true },
+      { keyCode: 229 },
+      { key: 'a' },
+    ]
+    for (const overrides of cases) {
+      const event = keydownEvent(target, overrides)
+      for (const listener of document.listeners) listener(event)
+      assert.equal(event.prevented, false, JSON.stringify(overrides))
+    }
+    assert.equal(dispatched.length, 0)
+    document.listeners.clear()
+  } finally {
+    if (previous === undefined) delete globalThis.KeyboardEvent
+    else globalThis.KeyboardEvent = previous
+  }
+})
+
+test('composer Enter rewrite ignores other editors and an open suggestion menu', async () => {
+  const client = await loadClientBundle()
+  const previous = globalThis.KeyboardEvent
+  globalThis.KeyboardEvent = FakeKeyboardEvent
+  try {
+    const document = composerDocument()
+    client.__test.installComposerEnterNewline(document)
+    const outsideCardEditor = { closest: () => null }
+    const outside = { closest: () => null }
+    const outsideEvent = keydownEvent(outside)
+    for (const listener of document.listeners) listener(outsideEvent)
+    assert.equal(outsideEvent.prevented, false)
+    const { target: menuTarget, dispatched } = composerTarget({ menuOpen: true })
+    const menuEvent = keydownEvent(menuTarget)
+    for (const listener of document.listeners) listener(menuEvent)
+    assert.equal(menuEvent.prevented, false)
+    assert.equal(dispatched.length, 0)
+    assert.equal(client.__test.composerLineBreakTarget(menuTarget), false)
+    const outsideCardTarget = {
+      closest: (selector) => (selector === '[data-lexical-editor="true"]' ? outsideCardEditor : null),
+    }
+    const outsideCardEvent = keydownEvent(outsideCardTarget)
+    for (const listener of document.listeners) listener(outsideCardEvent)
+    assert.equal(outsideCardEvent.prevented, false)
+    document.listeners.clear()
+  } finally {
+    if (previous === undefined) delete globalThis.KeyboardEvent
+    else globalThis.KeyboardEvent = previous
   }
 })
