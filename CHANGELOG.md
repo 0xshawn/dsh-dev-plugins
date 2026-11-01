@@ -6,12 +6,20 @@ Renamed the bundle from `dsh-remote-access` to `dsh-dev-plugins`.
 
 - The npm package, profile row id, client module id, feature-flag globals
   (`__DSH_DEV_PLUGINS_NOTIFY__`, `__DSH_DEV_PLUGINS_STATS__`), stats route
-  (`/dsh-dev-plugins/stats/data`), and browser storage keys are renamed.
+  (`/dsh-dev-plugins/stats/data`), browser storage keys, and notification tags
+  (`dsh-dev-plugins:*`) are renamed.
 - `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` is renamed to
   `DSH_DEV_PLUGINS_TRUSTED_HOSTS`. Update the service environment and the
-  profile row (`dsh plugin remove dsh-remote-access`, then add this package).
+  profile row (`dsh plugin --profile web remove dsh-remote-access`, then add
+  this package).
 - No behaviour change. Browser storage keys are renamed, so open tabs rebuild
-  their cross-tab state after the reload that the bundle revision triggers.
+  their cross-tab state after the reload that the bundle revision triggers. A
+  notification still on screen under the old tag is left in place by the
+  browser; new notifications use the new tag.
+- Entries below keep the identifiers that shipped with them: a deployment
+  pinned before 0.5.0 still uses `dsh-remote-access`,
+  `DSH_REMOTE_ACCESS_TRUSTED_HOSTS`, `__DSH_REMOTE_ACCESS_*`, and
+  `/dsh-remote-access/stats/data`. Their current spellings are used above.
 
 ## 0.4.0 — 2026-11-01
 
