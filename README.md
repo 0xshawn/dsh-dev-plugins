@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-A growing collection of plugins for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), installed as one bundle. The current release serves the dsh Web UI through a **non-localhost authority** — a reverse proxy, SSH tunnel, or LAN address — without patching the installed dsh, and adds browser notifications plus a workspace token-usage page.
+A growing collection of plugins for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), installed as one bundle. The current release serves the dsh Web UI through a **non-localhost authority** — a reverse proxy, SSH tunnel, or LAN address — without patching the installed dsh, and adds browser notifications, a workspace token-usage page, and a composer where Enter inserts a line break.
 
 [中文文档](./README.zh-CN.md)
 
@@ -200,6 +200,15 @@ The page reads `GET /dsh-dev-plugins/stats/data?from=<ms>&to=<ms>&tz=<IANA>`
 applies the same trusted-authority and launch-token cookie checks as `/api`; it
 returns only token totals, workspace paths, and day keys, never message content.
 
+### Composer: Enter inserts a line break
+
+The dsh chat composer submits on Enter and inserts a line break on Shift+Enter.
+This bundle flips the plain Enter key: it now inserts a line break, and a
+message is sent with Cmd/Ctrl+Enter or the Send button. The rewrite targets the
+composer's Lexical editor only — a plain Enter in any other input, and Enter
+while a slash-command, mention, or file menu is open, keep their stock
+behaviour. The rewritten keystroke never submits, and IME composition is left
+alone.
 
 ## How it works
 

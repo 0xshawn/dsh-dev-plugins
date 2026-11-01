@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 — 2026-11-01
+
+Composer Enter inserts a line break.
+
+- A plain Enter in the dsh chat composer now inserts a line break instead of
+  submitting the draft, matching Shift+Enter. Send with Cmd/Ctrl+Enter or the
+  Send button.
+- The rewrite runs as a capture-phase keydown listener on the composer's
+  Lexical editor and replays the Shift+Enter chord the stock composer already
+  handles, so the rewritten key never submits.
+- Stock behaviour is preserved for modifier chords, IME composition, inputs
+  outside the composer, and an open slash-command, mention, or file menu.
+
 ## 0.5.0 — 2026-11-01
 
 Renamed the bundle from `dsh-remote-access` to `dsh-dev-plugins`.

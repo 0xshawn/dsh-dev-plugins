@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知和工作区 token 用量页。
+一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知、工作区 token 用量页，以及回车换行的输入框。
 
 [English](./README.md)
 
@@ -140,6 +140,10 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 首次打开会扫描全部历史，可能需要几秒；之后的请求复用按会话的折叠缓存，由实时 `session/event` 标脏增量更新。页面上的 **刷新** 按钮会强制全量重扫。用量归属于结算事件所在的本地日期，因此跨午夜的 Turn 计入结算当天。设置 `statsPage: false` 可同时移除侧边栏页面和数据路由。
 
 页面读取 `GET /dsh-dev-plugins/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
+
+### 输入框：回车换行
+
+dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普通回车改为换行，发送改用 Cmd/Ctrl+回车或发送按钮。改写只作用于聊天输入框的 Lexical 编辑器：其他输入框的回车、以及斜杠命令/提及/文件菜单打开时的回车都保持上游行为；被改写的按键不会发送消息，输入法组词期间也不处理。
 
 ## 工作原理
 
