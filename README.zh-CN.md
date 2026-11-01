@@ -145,6 +145,59 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普通回车改为换行，发送改用 Cmd/Ctrl+回车或发送按钮。改写只作用于聊天输入框的 Lexical 编辑器：其他输入框的回车、以及斜杠命令/提及/文件菜单打开时的回车都保持上游行为；被改写的按键不会发送消息，输入法组词期间也不处理。该改写没有配置开关，始终生效。会话运行中时，键盘发送走 dsh 的加速提交路径，因此不会遵循发送按钮仍然遵循的排队/插话偏好。
 
+### 浏览器控制
+
+bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh 工具：会话中模型可以像 DevTools 一样操作你本机的 Chrome —— 点击、输入、导航、等待、截图、读 DOM、执行页面 JS、看网络请求、读写 Cookie/存储。工具名形如 `mcp__browser__*`，bridge 由 bundle 的 `mcp-browser` 行自动拉起，不需要额外 MCP 配置。
+
+控制是全自动的：bridge 按需 attach 目标 tab，也可以自由切 tab，所以该 Chrome 里打开的任何页面都可能被读取或操作。只在你接受这个范围时安装扩展。dsh 自身的审批仍然生效（每条工具调用可能询问一次；dsh 没有 allow-always 规则），请配合你认可的权限预设使用。
+
+**安装。** bridge 随 bundle 装好即可。扩展：
+
+1. 先启动一次 `dsh web`，让 bridge 生成 `$DSH_HOME/browser-bridge/token`（默认 `~/.dsh/browser-bridge/token`，权限 `0600`）。
+2. 打开 `chrome://extensions`，启用开发者模式，选 **加载已解压的扩展程序**，选中本包的 `extension/` 目录（通过 profile 安装时为 `~/.dsh/profiles/web/node_modules/dsh-dev-plugins/extension`）。Chrome 会请求 `debugger`、`tabs`、`storage`、`alarms`、`downloads` 权限。
+3. 打开扩展弹窗，粘贴 token，先 **保存** 再 **连接**。状态点变绿并列出已 attach 的 tab 即成功。
+
+需要运行 `dsh web` 的机器上有 Chrome 120+；attach 期间 Chrome 会显示“正在由自动化测试软件控制”提示条。bridge 只监听 `127.0.0.1`。
+
+**工具**（均返回 JSON；截图额外返回 image 内容块）：
+
+| 工具 | 用途 |
+|---|---|
+| `tabs` | 列出、新建、切换、关闭 tab |
+| `navigate` | URL、后退、前进、刷新；默认等待加载完成 |
+| `observe` | 返回 URL、标题、页面文本，以及带稳定 `ref` 的可交互元素 |
+| `screenshot` | 视口、整页、元素或 `ref` 截图 |
+| `wait` | 等元素、等文本、等网络空闲或超时 |
+| `click` | 按 `ref`（或 CSS selector）真实鼠标点击 |
+| `type` | 向输入框输入文本，可先清空或提交 |
+| `key` | 组合键，如 `Control+A`、`Shift+Enter`、`Escape` |
+| `scroll` | 元素或视口滚动 |
+| `dialog` | 处理 `alert`/`confirm`/`prompt` |
+| `evaluate` | 在页面执行 JavaScript，返回 JSON 值 |
+| `network` | 开始/停止抓包、列请求、取单个响应体（上限 2MB） |
+| `upload` | 从允许的本地目录为文件输入框选文件 |
+| `download` | 把 URL 抓取到本地下载目录，或列出 Chrome 最近的下载 |
+| `cookies` | 读取、设置、清除 Cookie |
+| `storage` | 读取、设置、清除 `localStorage`/`sessionStorage` |
+
+交互类工具优先用 `ref`，回退 CSS `selector`；`evaluate` 是一切兜底。`ref` 在下一次 `observe`、页面导航或切 tab 后失效，过期会返回提示让模型重新 observe。
+
+**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、配对 token、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置；截图只作为 image 内容块返回、不落盘；网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `DSH_BROWSER_BRIDGE` | `1` | `0` 关闭 bridge 与全部浏览器工具 |
+| `DSH_BROWSER_BRIDGE_PORT` | `8790` | 本地 WebSocket 端口 |
+| `DSH_BROWSER_BRIDGE_TOKEN` | 自动生成文件 | 配对 token 覆盖 |
+| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | token 与审计目录 |
+| `DSH_BROWSER_BRIDGE_EXTENSION_ID` | 空 | 允许的扩展 ID（逗号分隔） |
+| `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` | `~/Downloads,~/Desktop` | 上传允许根目录 |
+| `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` | `~/Downloads/dsh-browser` | bridge 侧下载目录 |
+| `DSH_BROWSER_BRIDGE_DISABLE` | 空 | 禁用的工具（逗号分隔） |
+| `DSH_BROWSER_BRIDGE_NETWORK_LIMIT` | `500` | 网络抓包环形缓冲大小 |
+
+无头服务器上没有 Chrome 可 attach，不装扩展、让 bridge 空转即可（或设 `DSH_BROWSER_BRIDGE=0`）。
+
 ## 工作原理
 
 本包是一个 dsh **bundle**：`cordis.patch.yml` 是叠加在 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app` 之上的 patch 层，用到以下扩展点。
@@ -163,6 +216,8 @@ dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普�
 
 5. **通知 —— 客户端插件。** `package.json` 声明 `dsh.client`（`platform: web`）并导出 `./client`；`dsh-client-modules` 把浏览器 bundle 发给页面。客户端通过 `sessions` 与 `uiSession` 服务订阅 `ctx.uiSession.sessionStatus`，在本地发 Web Notification；`ctx.remote.$on('api-session/error')` 为下一次空闲转变提供失败详情。宿主侧只注入 `config.notifications` 对应的 `__DSH_DEV_PLUGINS_NOTIFY__` 开关。
 6. **Token 统计 —— 宿主路由加客户端页面。** 每个会话日志被折叠成 provider usage 结算记录（`assistant/message`/`assistant/attempt` 的 usage 样本，处理替换与重试），并按会话 id 缓存。`session/event` 监听器把会话标脏，下次请求只重读变化部分。宿主在 `ctx.webServer` 上注册精确路由 `/dsh-dev-plugins/stats/data`，并用 `connection.isTrusted` 与 `connection.browserAuth.isAuthenticated` 校验。浏览器半边注册 `main` 面板与 `sidebar.panellist` 入口；宿主根据 `config.statsPage` 注入 `__DSH_DEV_PLUGINS_STATS__` 开关。
+
+8. **浏览器控制 —— MCP bridge 加扩展。** bundle patch 插入一行 `@deepseek-ai/dsh-mcp-client`（`mcp-browser`，`serverName: browser`），stdio 命令是当前 Node 解释器，参数是按 `$DSH_HOME/profiles/$DSH_PROFILE/node_modules/dsh-dev-plugins/` 解析出的 `bridge/index.js`。bridge 提供 MCP 工具和本机 WebSocket 中继；MV3 扩展连中继、持有 `chrome.debugger`、转发 CDP 命令与事件。工具调用及其触碰的页面内容都不离开本机。
 
 ## 安全说明
 
@@ -186,6 +241,8 @@ dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普�
 - 插件行仅适用于 Web profile；没有 `connection` 服务的 profile 中该行保持 inactive，安装也不会生效。
 - `npm install -g @deepseek-ai/dsh@<version>` 升级 dsh 不会改动 profile，插件继续可用；升级后重启 `dsh web` 即加载新版本。
 - 固定令牌依赖 `connection.browserAuth.launchToken` 字段。若 dsh 改变该结构，配置了令牌时插件会在启动阶段报错；取消令牌配置或升级插件即可。
+- 浏览器控制需要 Chrome 120+ 并以“加载已解压”方式装扩展；attach 期间因 `debugger` 权限会显示 Chrome 自动化提示条。无头服务器没有 Chrome，bridge 空转，工具返回 `bridge_disconnected`。
+- patch 按 `$DSH_HOME` 与 `$DSH_PROFILE` 解析 `bridge/index.js`；若启动 `dsh web` 时没有这两个变量，则回退到 `~/.dsh` 和 `web` profile。用其他 profile 名时需要设置这两个变量（上游 CLI 会导出它们）。
 - 输入框回车改写依赖 dsh 内部 DOM 标记（`[data-composer-card]`、`[data-lexical-editor="true"]`、`[data-trigger-menu]`）。若未来 dsh 改名，监听器找不到输入框便静默失效，恢复上游“回车发送”，不会破坏页面。
 - 登录表单包装 `connection.authorizeIndex` 并读取 `browserAuth.isAuthenticated`。若未来 dsh 移除二者，表单会被跳过，裸地址恢复上游纯文本 `401`，插件其余功能继续工作。
 - 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。

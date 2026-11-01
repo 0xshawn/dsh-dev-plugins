@@ -4,9 +4,11 @@
 
 `dsh-dev-plugins` is the public DeepSeek Harness (dsh) web bundle: the host
 plugin in `lib/index.js`, the browser client in `lib/client.js`, the bundle
-patch in `cordis.patch.yml`, and the install/behaviour docs in `README*.md`.
-It is a multi-feature bundle: keep new plugin features in their own `lib/`
-modules and document each one in both READMEs.
+patch in `cordis.patch.yml`, the browser-control MCP bridge in `bridge/`, the
+Chrome extension in `extension/`, and the install/behaviour docs in
+`README*.md`. It is a multi-feature bundle: keep new plugin features in their
+own `lib/` modules, keep hand-written browser code build-free, and document
+each feature in both READMEs.
 
 ## Workflow
 

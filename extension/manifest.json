@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "dsh browser bridge",
+  "version": "0.7.0",
+  "description": "Thin chrome.debugger relay for the dsh browser bridge.",
+  "minimum_chrome_version": "120",
+  "permissions": ["debugger", "tabs", "storage", "alarms", "downloads"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "dsh browser bridge",
+    "default_popup": "popup.html"
+  }
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dsh browser bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="status-row">
+        <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+        <h1 id="status-text" class="status-text">Disconnected</h1>
+      </header>
+
+      <form id="settings-form" class="settings" novalidate>
+        <label class="field">
+          <span class="field-label">Port</span>
+          <input id="port-input" name="port" type="number" min="1" max="65535" step="1" inputmode="numeric" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field-label">Token</span>
+          <input id="token-input" name="token" type="password" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="actions">
+          <button id="save-button" type="submit" class="button">Save</button>
+          <button id="connect-button" type="button" class="button button-primary">Connect</button>
+          <button id="disconnect-button" type="button" class="button">Disconnect</button>
+        </div>
+      </form>
+
+      <section class="attached">
+        <h2 class="section-title">Attached tabs</h2>
+        <ul id="attached-list" class="tab-list"></ul>
+        <p id="attached-empty" class="muted">No tabs attached.</p>
+      </section>
+
+      <p id="last-error" class="error" hidden></p>
+      <p class="note">Tools and permissions are configured in the bridge.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

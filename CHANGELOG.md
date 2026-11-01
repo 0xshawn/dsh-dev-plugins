@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.0 — 2026-11-02
+
+Browser control: a Chrome extension plus a local MCP bridge that exposes the
+model's own Chrome as dsh tools.
+
+- New `bridge/` Node process, spawned by the bundle's `mcp-browser`
+  `@deepseek-ai/dsh-mcp-client` row on stdio, with a WebSocket relay on
+  `127.0.0.1:8790` for the extension.
+- Sixteen tools (`mcp__browser__*`): `tabs`, `navigate`, `observe`,
+  `screenshot`, `wait`, `click`, `type`, `key`, `scroll`, `dialog`,
+  `evaluate`, `network`, `upload`, `download`, `cookies`, `storage`.
+- New hand-written MV3 extension in `extension/` (no build step; Load unpacked)
+  that owns `chrome.debugger` and relays CDP commands and events. Control is
+  fully automatic: the bridge attaches and switches tabs on demand.
+- Pairing uses a local token file plus `Origin: chrome-extension://<id>`
+  validation; every tool call is audited; uploads are limited to configured
+  local roots, bridge-side URL downloads to a configured directory
+  (page-triggered downloads keep Chrome's own folder), screenshots returned as
+  image blocks only, and network bodies kept in memory with a 2 MB cap.
+- `DSH_BROWSER_BRIDGE=0` disables the bridge and its tools;
+  `DSH_BROWSER_BRIDGE_DISABLE` disables individual tools. Full knob list and
+  the wire contract are in `docs/browser-control-protocol.md`.
+- No change to the existing notifications, statistics, login-form, or composer
+  behaviour.
+
+
 ## 0.6.0 — 2026-11-01
 
 Composer Enter inserts a line break.
