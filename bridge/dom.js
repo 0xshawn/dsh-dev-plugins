@@ -9,6 +9,26 @@ import { browserError } from './errors.js'
 
 /** Page text included by `observe` (bounded so the MCP frame stays small). */
 const PAGE_TEXT_LIMIT = 20000
+/** Input types whose value must never leave the page. */
+export const SECRET_INPUT_TYPES = ['password']
+
+/**
+ * Remove the transient `inputType` marker from observed descriptors and drop
+ * `value` for password-like inputs. The page-side collector reports the input
+ * type so this module can decide without a second DOM round trip.
+ * @param descriptors - raw descriptors from the observe expression.
+ * @returns cleaned descriptors safe for the MCP payload.
+ */
+export function stripSecretValues(descriptors) {
+  if (!Array.isArray(descriptors)) return []
+  return descriptors.map((descriptor) => {
+    const copy = { ...descriptor }
+    const inputType = typeof copy.inputType === 'string' ? copy.inputType : ''
+    delete copy.inputType
+    if (SECRET_INPUT_TYPES.includes(inputType)) delete copy.value
+    return copy
+  })
+}
 
 const TRANSPORT_ERROR_CODES = ['bridge_disconnected', 'tab_unavailable', 'attach_failed', 'timeout']
 
@@ -113,6 +133,9 @@ export async function observe(session, tabId, { selector, maxElements = 100 } = 
           height: Math.round(rect.height),
         },
       };
+      if (element.tagName.toLowerCase() === 'input') {
+        descriptor.inputType = (element.getAttribute('type') || 'text').toLowerCase();
+      }
       if (typeof element.value === 'string' && element.value !== '') descriptor.value = element.value;
       if (element.disabled === true || element.getAttribute('aria-disabled') === 'true') descriptor.disabled = true;
       return descriptor;
@@ -140,7 +163,7 @@ export async function observe(session, tabId, { selector, maxElements = 100 } = 
   } catch {
     descriptors = []
   }
-  if (!Array.isArray(descriptors)) descriptors = []
+  descriptors = stripSecretValues(descriptors)
 
   const listProperties = nodesProperty?.value?.objectId
     ? await session.send(tabId, 'Runtime.getProperties', {
@@ -256,6 +279,25 @@ export async function boxCenter(session, tabId, target) {
   }
 }
 
+/**
+ * Clip rectangle for one element in page coordinates.
+ *
+ * `DOM.getBoxModel` reports viewport CSS pixels while
+ * `Page.captureScreenshot.clip` is page-relative. Add the visual viewport's
+ * page offset (`cssVisualViewport.pageX/pageY`, falling back to
+ * `cssLayoutViewport`) so a scrolled page crops the correct region.
+ * @returns `{ x, y, width, height }` in page CSS pixels.
+ */
+export async function elementClip(session, tabId, target) {
+  await scrollIntoView(session, tabId, target)
+  const box = await boxCenter(session, tabId, target)
+  const metrics = await session.send(tabId, 'Page.getLayoutMetrics', {})
+  const viewport = metrics?.cssVisualViewport ?? metrics?.cssLayoutViewport
+  const pageX = Number.isFinite(viewport?.pageX) ? viewport.pageX : 0
+  const pageY = Number.isFinite(viewport?.pageY) ? viewport.pageY : 0
+  return { x: box.left + pageX, y: box.top + pageY, width: box.width, height: box.height }
+}
+
 /** Focus a resolved node. */
 export async function focus(session, tabId, target) {
   const objectId = await objectIdFor(session, tabId, target)
@@ -291,7 +333,10 @@ export async function setFiles(session, tabId, target, files) {
 export async function captureScreenshot(session, tabId, { fullPage = false, clip } = {}) {
   const params = { format: 'png', fromSurface: true }
   if (clip !== undefined) {
+    // `clip` is page-relative; captureBeyondViewport lets the element clip
+    // work when the element sits outside the current viewport.
     params.clip = { ...clip, scale: 1 }
+    params.captureBeyondViewport = true
   } else if (fullPage) {
     const metrics = await session.send(tabId, 'Page.getLayoutMetrics', {})
     const size = metrics?.cssContentSize ?? metrics?.contentSize

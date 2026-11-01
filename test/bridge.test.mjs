@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -11,6 +11,7 @@ import { WebSocket } from 'ws'
 import { auditToolCall, buildAuditLine } from '../bridge/audit.js'
 import { ChromeSession } from '../bridge/chrome.js'
 import { parseConfig, readOrCreateToken } from '../bridge/config.js'
+import { stripSecretValues } from '../bridge/dom.js'
 import { saveDownload } from '../bridge/download.js'
 import { createNetworkLog, NETWORK_BODY_LIMIT, readNetworkBody, truncateBody } from '../bridge/network.js'
 import { createRelay } from '../bridge/relay.js'
@@ -20,6 +21,7 @@ import {
   MODIFIER_MASKS,
   registerTools,
   resolveUploadPaths,
+  selectAllChord,
   summarizeParams,
 } from '../bridge/tools.js'
 
@@ -44,6 +46,31 @@ async function startRelay(overrides = {}, options = {}) {
   const relay = createRelay(makeConfig(overrides), { helloTimeoutMs: 300, ...options })
   await relay.listen()
   return relay
+}
+
+/** Minimal session stub for invoking tool handlers without a browser. */
+function fakeSession(overrides = {}) {
+  return {
+    activeTabId: 1,
+    ensureActiveTab: async () => 1,
+    rememberUrl: () => {},
+    urlFor: () => undefined,
+    pressChord: async () => {},
+    send: async () => ({}),
+    network: { get: () => undefined, pendingCount: () => 0, list: () => [], size: 0 },
+    ...overrides,
+  }
+}
+
+/** Capture tool handlers by registering them on a fake McpServer. */
+function toolHandlers(session, config = {}) {
+  const handlers = new Map()
+  registerTools(
+    { registerTool: (name, toolConfig, callback) => handlers.set(name, callback) },
+    session,
+    { home: join(tmpdir(), 'bridge-test-audit'), disabledTools: [], ...config },
+  )
+  return handlers
 }
 
 function extensionUrl(relay, token = TOKEN) {
@@ -653,3 +680,304 @@ test('disabled download tool is not registered', () => {
   assert.equal(server.toolInputSchemaJson('download'), undefined)
 })
 
+test('selectAllChord uses Meta+A on macOS and Control+A elsewhere', () => {
+  const mac = selectAllChord('darwin')
+  assert.equal(mac.modifiers, MODIFIER_MASKS.Meta)
+  assert.equal(mac.key, 'a')
+  assert.equal(mac.code, 'KeyA')
+  const linux = selectAllChord('linux')
+  assert.equal(linux.modifiers, MODIFIER_MASKS.Control)
+  const windows = selectAllChord('win32')
+  assert.equal(windows.modifiers, MODIFIER_MASKS.Control)
+})
+
+test('type clear selects element contents before inserting text', async () => {
+  const calls = []
+  const session = fakeSession({
+    send: async (tabId, method, params = {}) => {
+      calls.push({ method, params })
+      switch (method) {
+        case 'DOM.getDocument':
+          return { root: { nodeId: 1 } }
+        case 'DOM.querySelector':
+          return { nodeId: 2 }
+        case 'DOM.describeNode':
+          return { node: { backendNodeId: 22 } }
+        case 'DOM.resolveNode':
+          return { object: { objectId: 'node-1' } }
+        case 'Runtime.callFunctionOn':
+          return { result: { value: params.functionDeclaration.includes('select()') } }
+        default:
+          return {}
+      }
+    },
+  })
+  const chords = []
+  session.pressChord = async (_tabId, chord) => chords.push(chord)
+  const handlers = toolHandlers(session)
+  const result = await handlers.get('type')({ selector: '#name', text: 'x', clear: true })
+  assert.equal(result.isError, undefined)
+
+  const selectCall = calls.find(
+    (call) => call.method === 'Runtime.callFunctionOn' && call.params.functionDeclaration.includes('select()'),
+  )
+  assert.equal(selectCall.params.objectId, 'node-1')
+  assert.equal(selectCall.params.returnByValue, true)
+  assert.deepEqual(
+    calls.filter((call) => call.method === 'Input.insertText').map((call) => call.params),
+    [{ text: 'x' }],
+  )
+  assert.equal(calls.some((call) => call.method === 'Input.dispatchKeyEvent'), false)
+  assert.deepEqual(chords, [])
+})
+
+test('type clear falls back to the platform chord when select() is unavailable', async () => {
+  const calls = []
+  const session = fakeSession({
+    send: async (tabId, method, params = {}) => {
+      calls.push({ method, params })
+      switch (method) {
+        case 'DOM.getDocument':
+          return { root: { nodeId: 1 } }
+        case 'DOM.querySelector':
+          return { nodeId: 2 }
+        case 'DOM.describeNode':
+          return { node: { backendNodeId: 22 } }
+        case 'DOM.resolveNode':
+          return { object: { objectId: 'node-1' } }
+        case 'Runtime.callFunctionOn':
+          return { result: { value: false } }
+        default:
+          return {}
+      }
+    },
+  })
+  const chords = []
+  session.pressChord = async (_tabId, chord) => chords.push(chord)
+  const handlers = toolHandlers(session)
+  const result = await handlers.get('type')({ selector: '#editor', text: 'y', clear: true })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(chords, [selectAllChord()])
+  assert.deepEqual(
+    calls.filter((call) => call.method === 'Input.insertText').map((call) => call.params),
+    [{ text: 'y' }],
+  )
+})
+
+test('screenshot translates the element clip into page coordinates', async () => {
+  const calls = []
+  const session = fakeSession({
+    send: async (tabId, method, params = {}) => {
+      calls.push({ method, params })
+      switch (method) {
+        case 'DOM.getDocument':
+          return { root: { nodeId: 1 } }
+        case 'DOM.querySelector':
+          return { nodeId: 2 }
+        case 'DOM.describeNode':
+          return { node: { backendNodeId: 22 } }
+        case 'DOM.scrollIntoViewIfNeeded':
+          return {}
+        case 'DOM.getBoxModel':
+          return { model: { content: [100, 200, 300, 200, 300, 260, 100, 260] } }
+        case 'Page.getLayoutMetrics':
+          return { cssVisualViewport: { pageX: 40, pageY: 500 }, cssLayoutViewport: { pageX: 0, pageY: 0 } }
+        case 'Page.captureScreenshot':
+          return { data: 'cG5n' }
+        case 'Runtime.evaluate':
+          return { result: { value: { url: 'https://example.com/', title: 'Example' } } }
+        default:
+          return {}
+      }
+    },
+  })
+  const handlers = toolHandlers(session)
+  const result = await handlers.get('screenshot')({ selector: '#blue' })
+  assert.equal(result.isError, undefined)
+
+  const capture = calls.find((call) => call.method === 'Page.captureScreenshot')
+  assert.deepEqual(capture.params.clip, { x: 140, y: 700, width: 200, height: 60, scale: 1 })
+  assert.equal(capture.params.captureBeyondViewport, true)
+  assert.equal(result.content[1].type, 'image')
+  assert.equal(result.content[1].mimeType, 'image/png')
+  assert.equal(result.content[1].data, 'cG5n')
+})
+
+test('navigate reports navigate_failed for Page.navigate errors and missing history entries', async () => {
+  const handlers = toolHandlers(
+    fakeSession({
+      send: async (tabId, method) => (method === 'Page.navigate' ? { errorText: 'net::ERR_NAME_NOT_RESOLVED' } : {}),
+    }),
+  )
+  const failed = await handlers.get('navigate')({ url: 'https://nope.invalid/', waitUntil: 'none' })
+  assert.equal(failed.isError, true)
+  assert.match(failed.content[0].text, /^navigate_failed: Navigation failed: net::ERR_NAME_NOT_RESOLVED/)
+
+  const historyHandlers = toolHandlers(
+    fakeSession({
+      send: async (tabId, method) => (method === 'Page.getNavigationHistory' ? { currentIndex: 0, entries: [{ id: 3 }] } : {}),
+    }),
+  )
+  const back = await historyHandlers.get('navigate')({ back: true, waitUntil: 'none' })
+  assert.equal(back.isError, true)
+  assert.match(back.content[0].text, /^navigate_failed: No navigation history entry to go back to/)
+})
+
+test('cookies clear by name requires a url and forwards it', async () => {
+  const calls = []
+  const handlers = toolHandlers(
+    fakeSession({
+      send: async (tabId, method, params = {}) => {
+        calls.push({ method, params })
+        return {}
+      },
+    }),
+  )
+  const failed = await handlers.get('cookies')({ op: 'clear', name: 'sid' })
+  assert.equal(failed.isError, true)
+  assert.match(failed.content[0].text, /^invalid_params:/)
+  assert.equal(calls.some((call) => call.method === 'Network.deleteCookies'), false)
+
+  const scoped = []
+  const withCurrentUrl = toolHandlers(
+    fakeSession({
+      urlFor: () => 'https://example.com/page',
+      send: async (tabId, method, params = {}) => {
+        scoped.push({ method, params })
+        return {}
+      },
+    }),
+  )
+  const ok = await withCurrentUrl.get('cookies')({ op: 'clear', name: 'sid' })
+  assert.equal(ok.isError, undefined)
+  assert.deepEqual(scoped, [{ method: 'Network.deleteCookies', params: { name: 'sid', url: 'https://example.com/page' } }])
+
+  const explicit = []
+  const withExplicitUrl = toolHandlers(
+    fakeSession({
+      send: async (tabId, method, params = {}) => {
+        explicit.push({ method, params })
+        return {}
+      },
+    }),
+  )
+  const okExplicit = await withExplicitUrl.get('cookies')({ op: 'clear', name: 'sid', urls: ['https://other.example/'] })
+  assert.equal(okExplicit.isError, undefined)
+  assert.deepEqual(explicit[0], {
+    method: 'Network.deleteCookies',
+    params: { name: 'sid', url: 'https://other.example/' },
+  })
+})
+
+test('upload expands ~ against the user home and still enforces roots', async (t) => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), 'bridge-home-')))
+  const other = await realpath(await mkdtemp(join(tmpdir(), 'bridge-other-')))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  t.after(() => rm(other, { recursive: true, force: true }))
+  const file = join(home, 'document.txt')
+  await writeFile(file, 'doc')
+
+  assert.deepEqual(await resolveUploadPaths(['~/document.txt'], [home], { home }), [file])
+  await assert.rejects(resolveUploadPaths(['~root/document.txt'], [home], { home }), (error) => {
+    assert.equal(error.code, 'invalid_params')
+    return true
+  })
+  await assert.rejects(resolveUploadPaths(['~/document.txt'], [other], { home }), (error) => {
+    assert.equal(error.code, 'upload_path_denied')
+    return true
+  })
+  await assert.rejects(resolveUploadPaths(['~/missing.txt'], [home], { home }), (error) => {
+    assert.equal(error.code, 'upload_path_missing')
+    return true
+  })
+})
+
+test('wait networkIdle restores the previous network recording state', async () => {
+  const methods = []
+  const relay = {
+    onEvent: () => () => {},
+    call: async (method, params = {}) => {
+      methods.push(method === 'cdp' ? params.method : method)
+      return {}
+    },
+  }
+  const session = new ChromeSession(relay, {})
+
+  assert.equal(await session.waitForFirst(1, { networkIdle: true }, 1000, 5), 'networkIdle')
+  assert.deepEqual(
+    methods.filter((method) => method === 'Network.enable' || method === 'Network.disable'),
+    ['Network.enable', 'Network.disable'],
+  )
+  assert.equal(session.recording, false)
+
+  methods.length = 0
+  session.recording = true
+  assert.equal(await session.waitForFirst(1, { networkIdle: true }, 1000, 5), 'networkIdle')
+  assert.equal(methods.includes('Network.enable'), false)
+  assert.equal(methods.includes('Network.disable'), false)
+  assert.equal(session.recording, true)
+  session.close()
+})
+
+test('download never truncates an existing file or follows a symlink', async (t) => {
+  const server = createServer((request, response) => {
+    response.writeHead(200)
+    response.end('fresh')
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  t.after(() => new Promise((resolve) => server.close(() => resolve())))
+  const { port } = server.address()
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'bridge-download-safe-')))
+  t.after(() => rm(base, { recursive: true, force: true }))
+
+  const outDir = join(base, 'out')
+  await mkdir(outDir)
+  const existing = join(outDir, 'report.txt')
+  await writeFile(existing, 'keep me')
+  const saved = await saveDownload({ downloadDir: outDir, url: `http://127.0.0.1:${port}/report.txt` })
+  assert.equal(saved.filename, 'report (1).txt')
+  assert.equal(saved.path, join(outDir, 'report (1).txt'))
+  assert.equal(await readFile(existing, 'utf8'), 'keep me')
+  assert.equal(await readFile(saved.path, 'utf8'), 'fresh')
+
+  const linkDir = join(base, 'links')
+  await mkdir(linkDir)
+  const outside = join(base, 'outside.txt')
+  await writeFile(outside, 'outside')
+  const linkPath = join(linkDir, 'report.txt')
+  await symlink(outside, linkPath)
+  const linked = await saveDownload({ downloadDir: linkDir, url: `http://127.0.0.1:${port}/report.txt` })
+  assert.equal(linked.filename, 'report (1).txt')
+  assert.equal(await readFile(outside, 'utf8'), 'outside')
+  assert.equal(await readlink(linkPath), outside)
+})
+
+test('observe descriptors drop values for password inputs', () => {
+  const cleaned = stripSecretValues([
+    { ref: 'e1', tag: 'input', inputType: 'password', value: 'hunter2' },
+    { ref: 'e2', tag: 'input', inputType: 'text', value: 'public' },
+    { ref: 'e3', tag: 'textarea', value: 'note' },
+  ])
+  assert.deepEqual(cleaned, [
+    { ref: 'e1', tag: 'input' },
+    { ref: 'e2', tag: 'input', value: 'public' },
+    { ref: 'e3', tag: 'textarea', value: 'note' },
+  ])
+})
+
+test('evaluate rejects results larger than 1 MB', async () => {
+  const big = 'x'.repeat(1024 * 1024 + 1)
+  const handlers = toolHandlers(fakeSession({ send: async () => ({ result: { value: big } }) }))
+  const result = await handlers.get('evaluate')({ expression: 'large()' })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /^evaluate_too_large:/)
+
+  const ok = await toolHandlers(fakeSession({ send: async () => ({ result: { value: 'small' } }) })).get('evaluate')({
+    expression: 'small()',
+  })
+  assert.equal(ok.isError, undefined)
+  assert.deepEqual(JSON.parse(ok.content[0].text), { result: 'small' })
+})

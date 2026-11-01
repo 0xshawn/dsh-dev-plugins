@@ -8,7 +8,7 @@
  * extension over the `downloads` RPC.
  */
 import { chmod, mkdir, open, rm } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, parse, resolve } from 'node:path'
 
 import { BridgeError } from './relay.js'
 
@@ -76,12 +76,32 @@ export function sanitizeDownloadFilename(filename, url) {
 }
 
 /**
- * Fetch an http(s) URL and stream it into `downloadDir`.
- * @param options - `downloadDir`, `url`, optional `filename`, optional
- *   `fetchImpl` for tests.
+ * Create the target file without following symlinks or truncating an existing
+ * file. `wx` fails with `EEXIST` on both an existing file and a symlink; try
+ * numeric suffixes (`name (1).ext`) until an unused name is found.
+ * @returns `{ handle, target, filename }`.
+ */
+async function openUniqueFile(directory, filename) {
+  const { name, ext } = parse(filename)
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const candidate = attempt === 0 ? filename : `${name} (${attempt})${ext}`
+    const target = join(directory, candidate)
+    try {
+      return { handle: await open(target, 'wx', DOWNLOAD_FILE_MODE), target, filename: candidate }
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+    }
+  }
+  throw toolError('download_unavailable', `Could not find a free file name for ${filename}`)
+}
+
+/**
+ * Fetch an http(s) URL and stream it into `downloadDir`. Existing files are
+ * never truncated: a numeric suffix picks a fresh name.
+ * @param options - `downloadDir`, `url`, and optional `filename`.
  * @returns `{ filename, path, size }` for the saved file.
  */
-export async function saveDownload({ downloadDir, url, filename, fetchImpl = fetch } = {}) {
+export async function saveDownload({ downloadDir, url, filename } = {}) {
   if (typeof downloadDir !== 'string' || downloadDir.trim() === '') {
     throw toolError('download_unavailable', 'No download directory is configured (DSH_BROWSER_BRIDGE_DOWNLOAD_DIR)')
   }
@@ -90,11 +110,10 @@ export async function saveDownload({ downloadDir, url, filename, fetchImpl = fet
   const directory = resolve(downloadDir)
   await mkdir(directory, { recursive: true, mode: DOWNLOAD_DIR_MODE })
   await chmod(directory, DOWNLOAD_DIR_MODE).catch(() => {})
-  const target = join(directory, safeName)
 
   let response
   try {
-    response = await fetchImpl(parsed)
+    response = await fetch(parsed)
   } catch (error) {
     throw toolError('download_unavailable', `The download could not be started: ${messageOf(error)}`)
   }
@@ -104,8 +123,13 @@ export async function saveDownload({ downloadDir, url, filename, fetchImpl = fet
 
   let size = 0
   let handle
+  let target
+  let savedName = safeName
   try {
-    handle = await open(target, 'w', DOWNLOAD_FILE_MODE)
+    const created = await openUniqueFile(directory, safeName)
+    handle = created.handle
+    target = created.target
+    savedName = created.filename
     if (response.body !== null && typeof response.body?.[Symbol.asyncIterator] === 'function') {
       for await (const chunk of response.body) {
         const buffer = Buffer.from(chunk)
@@ -122,11 +146,12 @@ export async function saveDownload({ downloadDir, url, filename, fetchImpl = fet
       await handle.close().catch(() => {})
       handle = undefined
     }
-    await rm(target, { force: true }).catch(() => {})
+    if (target !== undefined) await rm(target, { force: true }).catch(() => {})
+    if (error instanceof BridgeError) throw error
     throw toolError('download_unavailable', `Could not save the download: ${messageOf(error)}`)
   } finally {
     if (handle !== undefined) await handle.close().catch(() => {})
   }
 
-  return { filename: safeName, path: target, size }
+  return { filename: savedName, path: target, size }
 }

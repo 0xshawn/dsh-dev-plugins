@@ -16,9 +16,9 @@ model's own Chrome as dsh tools.
   fully automatic: the bridge attaches and switches tabs on demand.
 - Pairing uses a local token file plus `Origin: chrome-extension://<id>`
   validation; every tool call is audited; uploads are limited to configured
-  local roots, bridge-side URL downloads and screenshots to a configured
-  directory (page-triggered downloads keep Chrome's own folder), and network
-  bodies stay in memory with a 2 MB cap.
+  local roots, bridge-side URL downloads to a configured directory
+  (page-triggered downloads keep Chrome's own folder), screenshots returned as
+  image blocks only, and network bodies kept in memory with a 2 MB cap.
 - `DSH_BROWSER_BRIDGE=0` disables the bridge and its tools;
   `DSH_BROWSER_BRIDGE_DISABLE` disables individual tools. Full knob list and
   the wire contract are in `docs/browser-control-protocol.md`.

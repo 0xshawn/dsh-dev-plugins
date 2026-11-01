@@ -28,10 +28,6 @@ export class RefStore {
   get size() {
     return this.entries.size
   }
-
-  list() {
-    return [...this.entries.entries()].map(([ref, entry]) => ({ ref, ...entry }))
-  }
 }
 
 /** Create an empty ref store. */

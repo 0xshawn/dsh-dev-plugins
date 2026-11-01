@@ -182,7 +182,7 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 交互类工具优先用 `ref`，回退 CSS `selector`；`evaluate` 是一切兜底。`ref` 在下一次 `observe`、页面导航或切 tab 后失效，过期会返回提示让模型重新 observe。
 
-**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、配对 token、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 与截图只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置——网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。
+**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、配对 token、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置；截图只作为 image 内容块返回、不落盘；网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。
 
 | 变量 | 默认 | 作用 |
 |---|---|---|

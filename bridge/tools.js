@@ -15,6 +15,7 @@ import { saveDownload } from './download.js'
 import {
   boxCenter,
   captureScreenshot,
+  elementClip,
   focus,
   observe as observeDom,
   objectIdFor,
@@ -58,6 +59,18 @@ function withTimeout(promise, timeoutMs, message) {
     timer.unref?.()
   })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+/** Cap for one `evaluate` result; larger values fail with `evaluate_too_large`. */
+export const EVALUATE_RESULT_LIMIT_BYTES = 1024 * 1024
+
+/**
+ * Platform select-all chord for elements without a native `select()` method
+ * (contenteditable). macOS uses Meta+A, everything else Control+A.
+ * @param platform - `process.platform` value; injectable for tests.
+ */
+export function selectAllChord(platform = process.platform) {
+  return formatKeyChord(platform === 'darwin' ? 'Meta+A' : 'Control+A')
 }
 
 async function evaluateValue(session, tabId, expression) {
@@ -126,12 +139,21 @@ const navigateTool = {
     if (verbs !== 1) throw toolError('invalid_params', 'navigate needs exactly one of url, back, forward, reload')
     const tabId = await session.ensureActiveTab()
     if (params.url !== undefined) {
-      await session.send(tabId, 'Page.navigate', { url: params.url })
+      const navigation = await session.send(tabId, 'Page.navigate', { url: params.url })
+      if (typeof navigation?.errorText === 'string' && navigation.errorText !== '') {
+        throw toolError('navigate_failed', `Navigation failed: ${navigation.errorText}`)
+      }
     } else if (params.back === true || params.forward === true) {
       const history = await session.send(tabId, 'Page.getNavigationHistory', {})
       const index = Number(history.currentIndex) + (params.forward === true ? 1 : -1)
       const entry = history.entries?.[index]
-      if (entry !== undefined) await session.send(tabId, 'Page.navigateToHistoryEntry', { entryId: entry.id })
+      if (entry === undefined) {
+        throw toolError(
+          'navigate_failed',
+          `No navigation history entry to go ${params.forward === true ? 'forward' : 'back'} to`,
+        )
+      }
+      await session.send(tabId, 'Page.navigateToHistoryEntry', { entryId: entry.id })
     } else {
       await session.send(tabId, 'Page.reload', {})
     }
@@ -178,9 +200,7 @@ const screenshotTool = {
     let clip
     if (params.ref !== undefined || params.selector !== undefined) {
       const target = await resolveNode(session, tabId, params)
-      await scrollIntoView(session, tabId, target)
-      const box = await boxCenter(session, tabId, target)
-      clip = { x: box.left, y: box.top, width: box.width, height: box.height }
+      clip = await elementClip(session, tabId, target)
     }
     const data = await captureScreenshot(session, tabId, { fullPage: params.fullPage === true, clip })
     const info = await pageInfo(session, tabId)
@@ -252,6 +272,27 @@ const clickTool = {
   },
 }
 
+/**
+ * Select the contents of a resolved element. HTML input/textarea elements
+ * expose `select()`; contenteditable falls back to the platform chord.
+ */
+async function selectAll(session, tabId, target) {
+  if (target !== undefined) {
+    const objectId = await objectIdFor(session, tabId, target)
+    if (typeof objectId === 'string') {
+      const response = await session.send(tabId, 'Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration:
+          'function () { try { if (typeof this.select === "function") { this.select(); return true } } catch (error) { return false } return false }',
+        returnByValue: true,
+        awaitPromise: false,
+      })
+      if (response?.result?.value === true) return
+    }
+  }
+  await session.pressChord(tabId, selectAllChord())
+}
+
 const typeTool = {
   description: 'Type text into an element or the focused element.',
   schema: z.object({
@@ -263,15 +304,18 @@ const typeTool = {
   }),
   async handler(params, { session }) {
     const tabId = await session.ensureActiveTab()
+    let target
     if (params.ref !== undefined || params.selector !== undefined) {
-      const target = await resolveNode(session, tabId, params)
+      target = await resolveNode(session, tabId, params)
       await focus(session, tabId, target)
     }
-    if (params.clear === true) {
-      await session.pressChord(tabId, formatKeyChord('Control+A'))
+    if (params.clear === true) await selectAll(session, tabId, target)
+    if (params.text !== '') {
+      await session.send(tabId, 'Input.insertText', { text: params.text })
+    } else if (params.clear === true) {
+      // Selecting everything leaves the old content selected; delete it.
       await session.pressChord(tabId, formatKeyChord('Backspace'))
     }
-    if (params.text !== '') await session.send(tabId, 'Input.insertText', { text: params.text })
     if (params.submit === true) await session.pressChord(tabId, formatKeyChord('Enter'))
     return { typed: true, length: params.text.length, cleared: params.clear === true, submitted: params.submit === true }
   },
@@ -397,6 +441,15 @@ const evaluateTool = {
     if (result === undefined || result === null || result.type === 'undefined' || result.value === undefined) {
       throw toolError('evaluate_unserializable', 'The expression returned undefined or a value that JSON cannot represent')
     }
+    // Results are capped instead of truncated: a partial JSON value would be
+    // misleading. 1 MB is far above any practical tool payload.
+    const serialized = JSON.stringify(result.value)
+    if (Buffer.byteLength(serialized, 'utf8') > EVALUATE_RESULT_LIMIT_BYTES) {
+      throw toolError(
+        'evaluate_too_large',
+        `Evaluation result exceeds ${EVALUATE_RESULT_LIMIT_BYTES} bytes; return a smaller value from the page`,
+      )
+    }
     return { result: result.value }
   },
 }
@@ -498,12 +551,15 @@ const cookiesTool = {
       }
       case 'clear': {
         if (typeof params.name === 'string' && params.name !== '') {
-          const url = params.urls?.[0]
-          await session.send(
-            tabId,
-            'Network.deleteCookies',
-            url === undefined ? { name: params.name } : { name: params.name, url },
-          )
+          // CDP rejects deleteCookies without a url or domain.
+          const url = params.urls?.[0] ?? session.urlFor(tabId)
+          if (typeof url !== 'string' || url === '') {
+            throw toolError(
+              'invalid_params',
+              'cookies clear by name needs a url: pass urls or open a page first',
+            )
+          }
+          await session.send(tabId, 'Network.deleteCookies', { name: params.name, url })
           return { cleared: true, name: params.name }
         }
         await session.send(tabId, 'Network.clearBrowserCookies', {})

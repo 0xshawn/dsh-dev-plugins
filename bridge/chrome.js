@@ -385,48 +385,55 @@ export class ChromeSession {
    * @returns the matched condition name.
    */
   async waitForFirst(tabId, { selector, text, networkIdle } = {}, timeoutMs = 15000, idleMs = 500) {
-    if (networkIdle === true) await this.startNetwork(tabId)
-    let idleSince = null
-    let matched
-    await this.waitForCondition(
-      async () => {
-        if (selector !== undefined) {
-          const response = await this.send(tabId, 'Runtime.evaluate', {
-            expression: `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
-            returnByValue: true,
-          })
-          if (response?.result?.value === true) {
-            matched = 'selector'
-            return true
-          }
-        }
-        if (text !== undefined) {
-          const response = await this.send(tabId, 'Runtime.evaluate', {
-            expression: `(document.body ? document.body.innerText : "").includes(${JSON.stringify(text)})`,
-            returnByValue: true,
-          })
-          if (response?.result?.value === true) {
-            matched = 'text'
-            return true
-          }
-        }
-        if (networkIdle === true) {
-          if (this.network.pendingCount(tabId) > 0) {
-            idleSince = null
-          } else {
-            if (idleSince === null) idleSince = Date.now()
-            if (Date.now() - idleSince >= idleMs) {
-              matched = 'networkIdle'
+    // `networkIdle` needs Network.enable, but only for the duration of the
+    // wait: restore the caller's recording state afterwards.
+    const managesRecording = networkIdle === true && this.recording !== true
+    if (managesRecording) await this.startNetwork(tabId)
+    try {
+      let idleSince = null
+      let matched
+      await this.waitForCondition(
+        async () => {
+          if (selector !== undefined) {
+            const response = await this.send(tabId, 'Runtime.evaluate', {
+              expression: `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
+              returnByValue: true,
+            })
+            if (response?.result?.value === true) {
+              matched = 'selector'
               return true
             }
           }
-        }
-        return false
-      },
-      timeoutMs,
-      `No wait condition was met within ${timeoutMs} ms`,
-    )
-    return matched
+          if (text !== undefined) {
+            const response = await this.send(tabId, 'Runtime.evaluate', {
+              expression: `(document.body ? document.body.innerText : "").includes(${JSON.stringify(text)})`,
+              returnByValue: true,
+            })
+            if (response?.result?.value === true) {
+              matched = 'text'
+              return true
+            }
+          }
+          if (networkIdle === true) {
+            if (this.network.pendingCount(tabId) > 0) {
+              idleSince = null
+            } else {
+              if (idleSince === null) idleSince = Date.now()
+              if (Date.now() - idleSince >= idleMs) {
+                matched = 'networkIdle'
+                return true
+              }
+            }
+          }
+          return false
+        },
+        timeoutMs,
+        `No wait condition was met within ${timeoutMs} ms`,
+      )
+      return matched
+    } finally {
+      if (managesRecording) await this.stopNetwork(tabId)
+    }
   }
 
   async waitForCondition(predicate, timeoutMs, message) {

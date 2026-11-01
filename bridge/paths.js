@@ -2,7 +2,8 @@
  * Path guards and audit summaries shared by the tool handlers.
  */
 import { realpath, stat } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { homedir as osHomedir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { BridgeError } from './relay.js'
 
@@ -25,15 +26,27 @@ export function isWithinRoots(targetPath, roots) {
   })
 }
 
+/** Expand a leading `~`/`~/` and reject the unsupported `~user` form. */
+function expandHome(input, home) {
+  if (input === '~') return home
+  if (input.startsWith('~/')) return join(home, input.slice(2))
+  if (input.startsWith('~')) {
+    throw toolError('invalid_params', `Unsupported home path: ${input} (only ~ and ~/... are expanded)`)
+  }
+  return input
+}
+
 /**
  * Resolve upload paths to real files inside the allowed roots. Symlinks are
  * resolved before the root check, so a link inside a root that points outside
- * is rejected.
+ * is rejected. A leading `~`/`~/` is expanded against the user home before
+ * resolution; `~user` forms are rejected.
  * @param paths - operator-provided paths.
  * @param roots - allowed upload roots.
+ * @param options - `home` override for `~` expansion (tests).
  * @returns canonical absolute file paths.
  */
-export async function resolveUploadPaths(paths, roots) {
+export async function resolveUploadPaths(paths, roots, { home = osHomedir() } = {}) {
   if (!Array.isArray(paths) || paths.length === 0) {
     throw toolError('invalid_params', 'paths must contain at least one file')
   }
@@ -51,7 +64,7 @@ export async function resolveUploadPaths(paths, roots) {
     if (typeof input !== 'string' || input.trim() === '') {
       throw toolError('invalid_params', 'each upload path must be a non-empty string')
     }
-    const absolute = resolve(input)
+    const absolute = resolve(expandHome(input.trim(), home))
     let canonical
     try {
       canonical = await realpath(absolute)

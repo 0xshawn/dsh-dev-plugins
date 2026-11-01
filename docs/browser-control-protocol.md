@@ -56,6 +56,8 @@ Bridge to extension:
 { "type": "ping", "id": 3 }
 ```
 
+Either side may send `ping`; the peer answers `pong` with the same `id`.
+
 Bridge closes the socket when `hello` is missing within 5 s, when `protocol`
 differs, or on a malformed frame.
 
@@ -94,8 +96,8 @@ screenshot-producing calls, one `image` block (`image/png`). Tool errors use
 |---|---|---|
 | `tabs` | `{ op: "list" \| "new" \| "select" \| "close", tabId?, url? }` | `select` activates; `new` opens an active tab |
 | `navigate` | `{ url?, back?, forward?, reload?, waitUntil? }` | exactly one navigation verb; `waitUntil` `load` (default) / `domcontentloaded` / `none`; returns `{ url, title }` |
-| `observe` | `{ selector?, maxElements?, screenshot? }` | `{ url, title, text, elements: [{ ref, role, name, tag, value?, disabled?, bounds }] , refsInvalidatedAt }`; refs are stable until the next `observe`, navigation, or tab switch |
-| `screenshot` | `{ fullPage?, ref?, selector? }` | image content block; device pixel ratio respected |
+| `observe` | `{ selector?, maxElements?, screenshot? }` | `{ url, title, text, elements: [{ ref, role, name, tag, value?, disabled?, bounds }] , refsInvalidatedAt }`; refs are stable until the next `observe`, a navigation, or selecting a different tab. `value` is omitted for password inputs |
+| `screenshot` | `{ fullPage?, ref?, selector? }` | image content block only (never written to disk); element clips use the page-relative offset so scrolled pages crop correctly; device pixel ratio respected |
 | `wait` | `{ selector?, text?, networkIdle?, timeoutMs? }` | first satisfied condition; default timeout 15 s |
 | `click` | `{ ref?, selector?, button?, clickCount?, modifiers? }` | ref preferred; real `Input.dispatchMouseEvent` at the element box |
 | `type` | `{ ref?, selector?, text, submit?, clear? }` | `clear` selects existing content first; `submit` presses Enter (form submit semantics) |
@@ -104,14 +106,15 @@ screenshot-producing calls, one `image` block (`image/png`). Tool errors use
 | `dialog` | `{ accept, promptText? }` | answers the pending `Page.javascriptDialogOpening`; `{ pending: false }` when none |
 | `evaluate` | `{ expression, awaitPromise?, timeoutMs? }` | main world; result JSON-serialized; default timeout 10 s |
 | `network` | `{ op: "start" \| "stop" \| "list" \| "body" \| "clear", requestId? }` | ring buffer of 500 requests by default; `body` waits for the request to finish (5 s) and retries briefly while Chrome reports the body as not yet available, then returns at most 2 MB (`truncated`, `size`, `mimeType`, `base64`); nothing written to disk |
-| `upload` | `{ ref?, selector?, paths: string[] }` | paths must resolve under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default `~/Downloads,~/Desktop`), symlinks resolved; uses `DOM.setFileInputFiles` |
+| `upload` | `{ ref?, selector?, paths: string[] }` | `~`/`~/...` expands against the user home; paths must resolve under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default `~/Downloads,~/Desktop`), symlinks resolved; uses `DOM.setFileInputFiles` |
 | `download` | `{ op: "url" \| "list", url?, filename? }` | `url` fetches the http(s) URL in the bridge and streams it into `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` (default `~/Downloads/dsh-browser`), returning `{ filename, path, size }`; `list` reports recent Chrome downloads as `{ guid, url, filename, path, state, bytesReceived, totalBytes }`. Page-triggered downloads follow Chrome's own download setting, not this directory — Chrome refuses browser-level download routing from an extension debugger session. |
-| `cookies` | `{ op: "get" \| "set" \| "clear", urls?, cookies?, name? }` | CDP `Network.getCookies` / `setCookie` / `deleteCookies` |
+| `cookies` | `{ op: "get" \| "set" \| "clear", urls?, cookies?, name? }` | CDP `Network.getCookies` / `setCookie` / `deleteCookies`; clearing by `name` needs `urls` or uses the current tab URL, and clearing without a name wipes every cookie in the profile |
 | `storage` | `{ op: "get" \| "set" \| "clear", area?, key?, value? }` | `area` `local` (default) / `session`; string values |
 
 `evaluate`, `network`, `upload`, `download`, `cookies`, and `storage` can each be
 disabled with `DSH_BROWSER_BRIDGE_DISABLE` (comma-separated tool names); a
-disabled tool is not listed and calls fail with `tool_disabled`.
+disabled tool is not registered at all, so it is absent from `tools/list` and a
+call fails with the MCP "unknown tool" error.
 
 ## Bridge configuration (environment)
 
@@ -144,4 +147,5 @@ reduced to `{ length }`.
 - Tab closed or debugger detached underneath: the bridge drops cached refs for
   that tab and returns `tab_unavailable`.
 - Tab switch during a session: the first command targeting a new tab attaches
-  it; existing refs stay valid per tab until that tab navigates.
+  it, and selecting a different tab invalidates the previous tab's refs; refs
+  also die when their tab navigates.
