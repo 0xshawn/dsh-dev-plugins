@@ -7,9 +7,11 @@ Composer Enter inserts a line break.
 - A plain Enter in the dsh chat composer now inserts a line break instead of
   submitting the draft, matching Shift+Enter. Send with Cmd/Ctrl+Enter or the
   Send button.
-- The rewrite runs as a capture-phase keydown listener on the composer's
-  Lexical editor and replays the Shift+Enter chord the stock composer already
-  handles, so the rewritten key never submits.
+- The rewrite runs as a capture-phase keydown listener on the page document,
+  filtered to the composer's Lexical editor, and replays the Shift+Enter chord
+  the stock composer already handles, so the rewritten key never submits.
+- The rewrite is unconditional: there is no plugin-config switch, and
+  `notifications: false` leaves it active.
 - Stock behaviour is preserved for modifier chords, IME composition, inputs
   outside the composer, and an open slash-command, mention, or file menu.
 

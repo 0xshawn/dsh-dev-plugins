@@ -499,7 +499,7 @@ test('syncViewing publishes the focused main session and currentMainSessionId fi
   }
 })
 
-test('apply is a no-op when the browser has no Notification API', async () => {
+test('apply without a Notification API installs only the composer rewrite', async () => {
   const client = await loadClientBundle()
   const previous = globalThis.Notification
   delete globalThis.Notification
@@ -621,6 +621,14 @@ test('a disabled host statistics switch installs no panel', async () => {
   }
 })
 
+/** Minimal KeyboardEvent stand-in for the replay assertion. */
+class FakeKeyboardEvent {
+  constructor(type, init) {
+    this.type = type
+    Object.assign(this, init)
+  }
+}
+
 /** Fake page document that records the capture keydown listeners. */
 function composerDocument() {
   const listeners = new Set()
@@ -690,12 +698,6 @@ function keydownEvent(target, overrides = {}) {
 
 test('plain Enter in the chat composer becomes a line break, not a send', async () => {
   const client = await loadClientBundle()
-  class FakeKeyboardEvent {
-    constructor(type, init) {
-      this.type = type
-      Object.assign(this, init)
-    }
-  }
   const previous = globalThis.KeyboardEvent
   globalThis.KeyboardEvent = FakeKeyboardEvent
   try {
@@ -722,12 +724,6 @@ test('plain Enter in the chat composer becomes a line break, not a send', async 
 
 test('composer Enter rewrite leaves modifier chords and IME composition alone', async () => {
   const client = await loadClientBundle()
-  class FakeKeyboardEvent {
-    constructor(type, init) {
-      this.type = type
-      Object.assign(this, init)
-    }
-  }
   const previous = globalThis.KeyboardEvent
   globalThis.KeyboardEvent = FakeKeyboardEvent
   try {
@@ -749,6 +745,7 @@ test('composer Enter rewrite leaves modifier chords and IME composition alone', 
       assert.equal(event.prevented, false, JSON.stringify(overrides))
     }
     assert.equal(dispatched.length, 0)
+    document.listeners.clear()
   } finally {
     if (previous === undefined) delete globalThis.KeyboardEvent
     else globalThis.KeyboardEvent = previous
@@ -757,17 +754,12 @@ test('composer Enter rewrite leaves modifier chords and IME composition alone', 
 
 test('composer Enter rewrite ignores other editors and an open suggestion menu', async () => {
   const client = await loadClientBundle()
-  class FakeKeyboardEvent {
-    constructor(type, init) {
-      this.type = type
-      Object.assign(this, init)
-    }
-  }
   const previous = globalThis.KeyboardEvent
   globalThis.KeyboardEvent = FakeKeyboardEvent
   try {
     const document = composerDocument()
     client.__test.installComposerEnterNewline(document)
+    const outsideCardEditor = { closest: () => null }
     const outside = { closest: () => null }
     const outsideEvent = keydownEvent(outside)
     for (const listener of document.listeners) listener(outsideEvent)
@@ -778,6 +770,13 @@ test('composer Enter rewrite ignores other editors and an open suggestion menu',
     assert.equal(menuEvent.prevented, false)
     assert.equal(dispatched.length, 0)
     assert.equal(client.__test.composerLineBreakTarget(menuTarget), false)
+    const outsideCardTarget = {
+      closest: (selector) => (selector === '[data-lexical-editor="true"]' ? outsideCardEditor : null),
+    }
+    const outsideCardEvent = keydownEvent(outsideCardTarget)
+    for (const listener of document.listeners) listener(outsideCardEvent)
+    assert.equal(outsideCardEvent.prevented, false)
+    document.listeners.clear()
   } finally {
     if (previous === undefined) delete globalThis.KeyboardEvent
     else globalThis.KeyboardEvent = previous
