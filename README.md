@@ -9,7 +9,7 @@ Serve the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (d
 
 ## What this fixes
 
-Stock `dsh web` is built for a browser on the same machine. Four things are missing or break when the browser reaches it through another authority:
+Stock `dsh web` is built for a browser on the same machine. Six things are missing or break when the browser reaches it through another authority:
 
 | Problem | Stock dsh | This plugin |
 |---|---|---|
@@ -18,6 +18,7 @@ Stock `dsh web` is built for a browser on the same machine. Four things are miss
 | Launch token | random per process; the only way to find the login URL after a restart is the service log | pins `DSH_WEB_TOKEN` (or plugin config) across restarts |
 | First login | opening the bare deployment URL answers a plain `401`, so the token must come from the printed `?token=` URL | serves an HTML token form on the bare URL (`loginPage`, default on) and feeds the submitted token back into the stock exchange |
 | Background attention | a finished session or a pending approval/question stays invisible while the tab is in the background | raises a Web Notification for completion and for pending input (`notifications`, default on) |
+| Token usage history | the chat stats strip only shows the open Session; there is no workspace or cross-session view | adds a sidebar **Token usage** page that aggregates provider-billed tokens by workspace and day from the Host's durable session logs (`statsPage`, default on) |
 
 Authentication is unchanged: the browser still has to exchange the launch token for the signed, authority-bound session cookie, and the Host/Origin fence still runs before every `/api` request. This plugin removes deployment friction; it does not bypass access control.
 
@@ -84,6 +85,8 @@ Override the `dsh-remote-access` row in the profile patch (`$DSH_HOME/profiles/w
     loginPage: true
     # Enable the browser-notification client half.
     notifications: true
+    # Enable the sidebar token statistics page and its read-only data route.
+    statsPage: true
 ```
 
 ### First login without the token URL
@@ -162,10 +165,43 @@ nothing. Permission requires a secure context, so use HTTPS or loopback, not
 plain HTTP on a LAN address. Notification text includes the session title, so
 lock-screen previews may expose it.
 
+### Token usage statistics
+
+The sidebar gains a **Token usage** entry that opens a page with:
+
+- time presets (today, last 7 days, last 30 days, all time, custom range), with
+  the day boundary taken from the browser's IANA time zone;
+- a daily bar chart of provider-billed tokens;
+- summary cards for the total plus uncached input, output, cache read, and
+  cache write;
+- a workspace table with session counts and the same four buckets.
+
+The data comes from the Host's durable session logs, read through
+`ctx.sessionQuery` without activating any Agent. The plugin replays the same
+provider usage samples the stock `tokenUsage` projection folds — one settlement
+per Turn/step, with retried steps counting their replacement attempt — and skips
+fork-inherited event prefixes so a forked Session does not double-count its
+parent's usage. Subagent Sessions are included and attributed to the workspace
+of their parent chain. Sessions not registered in a workspace fall back to a
+per-directory row; Sessions with no directory at all share one "Other sessions"
+row.
+
+The first request scans the complete history and may take a few seconds; later
+requests reuse a per-Session fold cache that the live `session/event` feed
+invalidates. The page's **Refresh** button forces a full rescan. Usage is
+attributed to the local day of the event that settled the billed sample, so a
+Turn crossing midnight stays on the day it settled. Set `statsPage: false` to
+remove both the sidebar page and its data route.
+
+The page reads `GET /dsh-remote-access/stats/data?from=<ms>&to=<ms>&tz=<IANA>`
+(`from`/`to` optional, `refresh=1` forces a rescan). The route is read-only and
+applies the same trusted-authority and launch-token cookie checks as `/api`; it
+returns only token totals, workspace paths, and day keys, never message content.
+
 
 ## How it works
 
-The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`, and two seams are used.
+The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`, and several seams are used.
 
 1. **Trusted hosts — patch layer.** The `connection` row's `trustedHosts` gets the environment list concatenated onto the invocation list. The expression reads `ctx.get('webRuntime')` (dsh 0.2.0, which already carries the bind-derived LAN literals and CLI extras) or `ctx.get('webStartup')` (dsh 0.2.1); 0.2.0 provides both services, so runtime must win to keep a wildcard bind's LAN authorities. One patch covers both layouts. The Host/Origin fence and the `allowsRemoteAuthorities` classification are then upstream's own.
 2. **Loopback view — index injection.** The host plugin listens to `webserver/index-inject` and adds one inline classic script to the served index:
@@ -185,6 +221,15 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
    services and raises local Web Notifications; `ctx.remote.$on('api-session/error')`
    supplies failure details for the next idle transition. The Host only injects
    the `__DSH_REMOTE_ACCESS_NOTIFY__` feature flag from `config.notifications`.
+6. **Token statistics — Host route plus client panel.** Each Session log is
+   folded into provider usage settlements (`assistant/message`/`assistant/attempt`
+   usage samples, replacement and retry aware) and cached per Session id. A
+   `session/event` listener marks the Session dirty, so the next request rereads
+   only what changed. The Host registers the exact route
+   `/dsh-remote-access/stats/data` on `ctx.webServer` and guards it with
+   `connection.isTrusted` and `connection.browserAuth.isAuthenticated`. The
+   browser half registers a `main` panel and a `sidebar.panellist` entry; the
+   Host injects `__DSH_REMOTE_ACCESS_STATS__` from `config.statsPage`.
 
 ## Security
 
@@ -194,6 +239,7 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - **The loopback view goes beyond a documented client contract.** Upstream documents `ownsHost` as reserved for a shell that assembles its own transport and says served pages never carry the global. This bundle sets it anyway; every current dsh consumer reads it only for `isLoopback`, but a future or third-party client plugin could treat it as proof of host ownership. `loopback: false` removes that exposure.
 - **Plain HTTP leaks the token.** Terminate TLS at the proxy or with `--tls-cert/--tls-key`; the upstream guide covers cookie `Secure` behaviour.
 - **The login form does not rate-limit.** It only reveals an input for the same high-entropy launch token the printed URL carries; a proxy-level rate limit is still the right control for exposed endpoints. The form never renders for an authority the Host/Origin fence rejects.
+- **The statistics route exposes usage metadata.** It is authenticated with the same launch-token cookie and trusted-authority fence as `/api`, and it returns only per-workspace and per-day token totals plus workspace paths — never prompts, responses, or tool arguments. Anyone with the owner credential already has the full UI; `statsPage: false` removes the route.
 - **Do not add a CSP that blocks inline scripts.** The loopback row is an inline classic script; dsh's own boot globals already require inline script permission, but a proxy-injected CSP without `'unsafe-inline'` (or a nonce covering it) silently blocks the row while the page still loads.
 
 ## Compatibility
@@ -206,13 +252,14 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - The token seam reads `connection.browserAuth.launchToken`. If dsh changes that shape, the plugin throws at boot when a token is configured; unset the token or update the plugin.
 - The login form wraps `connection.authorizeIndex` and reads `browserAuth.isAuthenticated`. If a future dsh version removes either, the form is skipped and the bare URL answers the stock plain `401`; the rest of the plugin keeps working.
 - Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription.
+- Token statistics need `ctx.sessionQuery` (`listSessions` and `readSession`), `ctx.workspaceRegistry` (optional; an absent registry falls back to per-directory grouping), and `ctx.webServer.register`. When the session query service is missing, the data route answers `503` and the panel shows its load error.
 - The pin runs once at startup. A host-plugin reload (HMR) can rebuild the Connection service from dsh's cached per-process token and will not reprint the startup URL; restart `dsh web` after changing the token or the dsh version.
 
 ## Development
 
 ```sh
 npm install
-npm test        # node:test unit tests for config, token resolution, index injection
+npm test        # node:test unit tests for config, token resolution, index injection, usage folding, and route auth
 ```
 
 End-to-end check on an isolated home (no effect on your real profile):

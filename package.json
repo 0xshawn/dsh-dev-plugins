@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-access",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "Serve the DeepSeek Harness Web UI through a non-localhost authority: declarative /api trusted hosts, loopback page parity, and a pinned launch token, without patching the installed dsh.",
   "keywords": [
     "dsh",
@@ -11,7 +11,9 @@
     "remote-access",
     "reverse-proxy",
     "trusted-host",
-    "web-token"
+    "web-token",
+    "token-usage",
+    "statistics"
   ],
   "license": "MIT",
   "author": "shawn (https://github.com/0xshawn)",
@@ -52,7 +54,9 @@
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-api-session-controller",
-        "@deepseek-ai/dsh-client-ui-session"
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   },
