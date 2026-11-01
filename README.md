@@ -212,6 +212,89 @@ there is no plugin-config switch. While a session is running, the keyboard send
 uses dsh's accelerated submit, so it does not follow the busy-Enter queue/steer
 preference the Send button still honours.
 
+### Browser control
+
+The bundle also ships a Chrome extension plus a local bridge that exposes the
+browser as dsh tools, so the model can drive your local Chrome during a session
+with the same fidelity as DevTools: click, type, navigate, wait, screenshot,
+read the DOM, run page JavaScript, inspect network traffic, and manage
+cookies/storage. Tools appear as `mcp__browser__*` and the bridge is spawned by
+the bundle's `mcp-browser` row — no extra MCP configuration.
+
+Control is fully automatic: the bridge attaches the tab it needs and may switch
+tabs, so anything open in that Chrome can be read or operated. Only install the
+extension when you accept that scope. dsh's own approval prompts still apply
+(each tool call may ask once; dsh has no allow-always rule), so pair this with
+a permission preset you are comfortable with.
+
+**Install.** The bridge needs nothing beyond the bundle. For the extension:
+
+1. Start `dsh web` once so the bridge creates `$DSH_HOME/browser-bridge/token`
+   (default `~/.dsh/browser-bridge/token`, mode `0600`).
+2. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**,
+   and select the `extension/` directory of this package (for a profile
+   install: `~/.dsh/profiles/web/node_modules/dsh-dev-plugins/extension`).
+   Chrome asks for `debugger`, `tabs`, `storage`, `alarms`, and `downloads`.
+3. Open the extension popup, paste the token, press **Save**, then
+   **Connect**. The status dot turns green and the attached tabs appear.
+
+Requires Chrome 120+ on the machine that runs `dsh web`; the debugger
+attachment shows Chrome's "being controlled by automated test software" banner
+while attached. The bridge binds `127.0.0.1` only.
+
+**Tools** (all return JSON; screenshots also return an image block):
+
+| tool | purpose |
+|---|---|
+| `tabs` | list, open, select, close tabs |
+| `navigate` | URL, back, forward, reload; waits for load by default |
+| `observe` | URL, title, page text, and interactive elements with stable `ref`s |
+| `screenshot` | viewport, full page, element, or `ref` |
+| `wait` | element, text, network idle, or timeout |
+| `click` | real mouse click by `ref` (or CSS selector) |
+| `type` | type text into a field, optionally clear first or submit |
+| `key` | key chords such as `Control+A`, `Shift+Enter`, `Escape` |
+| `scroll` | element or viewport |
+| `dialog` | accept/dismiss `alert`/`confirm`/`prompt` |
+| `evaluate` | run JavaScript in the page, return a JSON value |
+| `network` | start/stop capture, list requests, fetch one response body (2 MB cap) |
+| `upload` | set a file input from an allowed local directory |
+| `download` | fetch a URL into the local download directory, or list recent Chrome downloads |
+| `cookies` | get, set, clear cookies |
+| `storage` | get, set, clear `localStorage`/`sessionStorage` |
+
+Interactive tools accept `ref` first and fall back to a CSS `selector`;
+`evaluate` is the escape hatch for everything else. A `ref` stays valid until
+the next `observe`, a navigation, or a tab change, and a stale `ref` fails with
+a message telling the model to observe again.
+
+**Security and limits.** Everything is local: WebSocket on `127.0.0.1`, a
+pairing token, and an `Origin: chrome-extension://<id>` check (optionally pinned
+to an extension-id allowlist). Every tool call is appended to
+`$DSH_HOME/browser-bridge/audit.jsonl` without secrets or typed text. `upload`
+only reads real files under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default
+`~/Downloads,~/Desktop`), `download op:"url"` and screenshots write only under
+`DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` (default `~/Downloads/dsh-browser`) —
+page-triggered downloads keep Chrome's own download folder — and network bodies
+stay in memory. Risky tools can be switched off individually
+with `DSH_BROWSER_BRIDGE_DISABLE`, and `DSH_BROWSER_BRIDGE=0` exits the bridge
+so no browser tools are registered.
+
+| variable | default | meaning |
+|---|---|---|
+| `DSH_BROWSER_BRIDGE` | `1` | `0` disables the bridge and its tools |
+| `DSH_BROWSER_BRIDGE_PORT` | `8790` | local WebSocket port |
+| `DSH_BROWSER_BRIDGE_TOKEN` | generated file | pairing token override |
+| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | token, audit log |
+| `DSH_BROWSER_BRIDGE_EXTENSION_ID` | empty | allowed extension ids |
+| `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` | `~/Downloads,~/Desktop` | upload roots |
+| `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` | `~/Downloads/dsh-browser` | bridge-side download destination |
+| `DSH_BROWSER_BRIDGE_DISABLE` | empty | comma-separated disabled tools |
+| `DSH_BROWSER_BRIDGE_NETWORK_LIMIT` | `500` | captured request ring buffer |
+
+On a headless server there is no Chrome to attach, so leave the extension
+uninstalled and the bridge idle (or set `DSH_BROWSER_BRIDGE=0`).
+
 ## How it works
 
 The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`, and several seams are used.
@@ -244,6 +327,8 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
    browser half registers a `main` panel and a `sidebar.panellist` entry; the
    Host injects `__DSH_DEV_PLUGINS_STATS__` from `config.statsPage`.
 
+8. **Browser control — MCP bridge plus extension.** The bundle patch inserts a `@deepseek-ai/dsh-mcp-client` row (`mcp-browser`, `serverName: browser`) whose stdio command is the running Node interpreter and whose argument is `bridge/index.js`, resolved from `$DSH_HOME/profiles/$DSH_PROFILE/node_modules/dsh-dev-plugins/`. The bridge serves MCP tools and a localhost WebSocket relay; the MV3 extension connects to the relay, owns `chrome.debugger`, and forwards CDP commands and events. Tool calls and the page content they touch never leave the machine.
+
 ## Security
 
 - **The launch token is the credential.** Anyone holding the printed `?token=` URL can obtain a session cookie and full owner access. Share it deliberately. A pinned token is a long-lived credential — never commit it. Changing `DSH_WEB_TOKEN` and restarting invalidates the old URL but does **not** revoke cookies already issued (they live for `cookieMaxAgeDays`, 30 days by default); clear the site's cookies, or remove the browser-session credential record and restart, to revoke them.
@@ -265,6 +350,8 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - The plugin row is Web-profile only; in a profile without a `connection` service the row stays inactive, so installing it there achieves nothing.
 - `npm install -g @deepseek-ai/dsh@<version>` replaces the dsh install but not the profile: the plugin keeps working after a dsh upgrade. Restart `dsh web` to load a new dsh version.
 - The token seam reads `connection.browserAuth.launchToken`. If dsh changes that shape, the plugin throws at boot when a token is configured; unset the token or update the plugin.
+- Browser control needs Chrome 120+ with the extension loaded unpacked. The `debugger` permission shows Chrome's automation banner while a tab is attached. On a headless server there is no Chrome, so the bridge stays idle and the tools fail with `bridge_disconnected`.
+- The patch resolves `bridge/index.js` from `$DSH_HOME` and `$DSH_PROFILE`; a host that launches `dsh web` without those environment variables falls back to `~/.dsh` and the `web` profile. A different profile name therefore needs the variable set (the stock CLI exports both).
 - The composer Enter rewrite depends on dsh-internal DOM markers (`[data-composer-card]`, `[data-lexical-editor="true"]`, `[data-trigger-menu]`). If a future dsh release renames them, the listener finds no composer and silently no-ops, restoring stock Enter-sends; it never breaks the page.
 - The login form wraps `connection.authorizeIndex` and reads `browserAuth.isAuthenticated`. If a future dsh version removes either, the form is skipped and the bare URL answers the stock plain `401`; the rest of the plugin keeps working.
 - Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription.

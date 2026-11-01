@@ -19,3 +19,35 @@
 - insert:
     - id: dsh-dev-plugins
       name: dsh-dev-plugins
+
+# 3. Browser-control bridge: the bundle's MCP server row. dsh-mcp-client spawns
+#    the bridge on stdio and registers its tools as mcp__browser__*. The bridge
+#    path resolves through the profile that holds this package, so the patch
+#    works for any profile name and install location; `node` is the running dsh
+#    interpreter. Set DSH_BROWSER_BRIDGE=0 to make the bridge exit and keep the
+#    tools unregistered; every other knob is an environment variable documented
+#    in docs/browser-control-protocol.md.
+- insert:
+    - id: mcp-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: browser
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          - !!js "`${process.env.DSH_HOME ?? `${process.env.HOME}/.dsh`}/profiles/${process.env.DSH_PROFILE ?? 'web'}/node_modules/dsh-dev-plugins/bridge/index.js`"
+        # dsh-mcp-client spawns stdio servers with a scrubbed environment, so
+        # every documented bridge knob has to be forwarded explicitly.
+        env:
+          DSH_HOME: !!js process.env.DSH_HOME ?? ''
+          DSH_BROWSER_BRIDGE: !!js process.env.DSH_BROWSER_BRIDGE ?? ''
+          DSH_BROWSER_BRIDGE_PORT: !!js process.env.DSH_BROWSER_BRIDGE_PORT ?? ''
+          DSH_BROWSER_BRIDGE_TOKEN: !!js process.env.DSH_BROWSER_BRIDGE_TOKEN ?? ''
+          DSH_BROWSER_BRIDGE_HOME: !!js process.env.DSH_BROWSER_BRIDGE_HOME ?? ''
+          DSH_BROWSER_BRIDGE_EXTENSION_ID: !!js process.env.DSH_BROWSER_BRIDGE_EXTENSION_ID ?? ''
+          DSH_BROWSER_BRIDGE_UPLOAD_ROOTS: !!js process.env.DSH_BROWSER_BRIDGE_UPLOAD_ROOTS ?? ''
+          DSH_BROWSER_BRIDGE_DOWNLOAD_DIR: !!js process.env.DSH_BROWSER_BRIDGE_DOWNLOAD_DIR ?? ''
+          DSH_BROWSER_BRIDGE_DISABLE: !!js process.env.DSH_BROWSER_BRIDGE_DISABLE ?? ''
+          DSH_BROWSER_BRIDGE_NETWORK_LIMIT: !!js process.env.DSH_BROWSER_BRIDGE_NETWORK_LIMIT ?? ''
+        failOnStartupError: false
+        toolCallTimeoutMs: 120000
