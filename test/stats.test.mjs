@@ -6,6 +6,7 @@ import {
   createStatsCollector,
   foldSessionUsage,
   installStatsRoute,
+  isTrustedRequest,
   parseStatsQuery,
   requestAuthorized,
   STATS_DATA_PATH,
@@ -72,6 +73,30 @@ test('foldSessionUsage keeps the latest sample per Turn/step and skips the inher
   const inherited = foldSessionUsage(events, 2)
   assert.equal(inherited.length, 1)
   assert.equal(inherited[0].time, 3000)
+})
+
+test('foldSessionUsage reads usage from compact Assistant streams', () => {
+  const attempt = {
+    type: 'assistant/attempt',
+    seq: 0,
+    time: 1000,
+    data: {
+      turn: 1,
+      step: 1,
+      stream: [
+        { type: 'text-chunks', texts: ['hello'] },
+        { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 7, outputTokens: 2 } } },
+      ],
+    },
+  }
+  const claims = foldSessionUsage([attempt])
+  assert.equal(claims.length, 1)
+  assert.deepEqual(claims[0].buckets, {
+    uncachedInputTokens: 7,
+    outputTokens: 2,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  })
 })
 
 test('foldSessionUsage adds the retried attempt after a retry boundary', () => {
@@ -172,6 +197,13 @@ test('parseStatsQuery degrades malformed values to unbounded and reads refresh',
   })
 })
 
+test('isTrustedRequest covers the 0.2.0 rejection-code branch', () => {
+  assert.equal(isTrustedRequest({ isTrusted: () => true }, {}), true)
+  assert.equal(isTrustedRequest({ requestRejection: () => 401 }, {}), true)
+  assert.equal(isTrustedRequest({ requestRejection: () => 403 }, {}), false)
+  assert.equal(isTrustedRequest({}, {}), true)
+})
+
 test('requestAuthorized enforces the trusted authority and cookie checks', () => {
   assert.equal(requestAuthorized(authorizedContext(), {}), true)
   assert.equal(
@@ -230,6 +262,58 @@ test('the collector caches whole-log folds and recomputes dirty sessions', async
   assert.equal(reads.length, 5)
 })
 
+test('a cached read failure retries on the next request', async () => {
+  let fail = true
+  const ctx = fakeContext({
+    sessionQuery: {
+      listSessions: async () => [
+        { header: { id: 'a', createdAt: 1, cwd: '/code/alpha', isSeeded: false }, live: false, persisted: true },
+      ],
+      readSession: async (id) => {
+        if (fail) throw new Error('temporarily unavailable')
+        return {
+          session: { id, createdAt: 1, cwd: '/code/alpha', isSeeded: false },
+          inheritedEventCount: 0,
+          events: [message(0, Date.now(), 1, 1, { inputTokens: 10, outputTokens: 1 })],
+        }
+      },
+    },
+  })
+  const collector = createStatsCollector(ctx)
+  const failed = await collector.collect({ timeZone: 'UTC' })
+  assert.equal(failed.skippedSessions, 1)
+  assert.equal(failed.totals.totalTokens, 0)
+  fail = false
+  const recovered = await collector.collect({ timeZone: 'UTC' })
+  assert.equal(recovered.skippedSessions, 0)
+  assert.equal(recovered.totals.totalTokens, 11)
+})
+
+test('the collector resolves a subagent workspace through its parent chain', async () => {
+  const records = [
+    { header: { id: 'parent', createdAt: 1, cwd: '/code/alpha', isSeeded: false }, live: false, persisted: true },
+    { header: { id: 'child', createdAt: 2, parentSession: 'parent', isSeeded: false }, live: false, persisted: true },
+  ]
+  const ctx = fakeContext({
+    sessionQuery: {
+      listSessions: async () => records,
+      readSession: async (id) => ({
+        session: records.find((record) => record.header.id === id).header,
+        inheritedEventCount: 0,
+        events: [message(0, Date.now(), 1, 1, { inputTokens: 10, outputTokens: 1 })],
+      }),
+    },
+    workspaceRegistry: {
+      list: () => [{ id: 'ws', title: 'Alpha', path: '/code/alpha', sessionIds: [] }],
+    },
+  })
+  const collector = createStatsCollector(ctx)
+  const stats = await collector.collect({ timeZone: 'UTC' })
+  assert.equal(stats.workspaces.length, 1)
+  assert.equal(stats.workspaces[0].id, 'ws')
+  assert.equal(stats.workspaces[0].sessions, 2)
+})
+
 test('the collector reports an unavailable session query service', async () => {
   const collector = createStatsCollector(fakeContext({}))
   await assert.rejects(collector.collect({}), StatsUnavailableError)
@@ -271,6 +355,47 @@ test('the data route rejects methods and unauthenticated requests', async () => 
   route.handler({ method: 'GET', url: STATS_DATA_PATH, on: () => {} }, authResponse)
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(authResponse.status, 401)
+})
+
+test('the data route returns 503 when session query is unavailable', async () => {
+  let route
+  const ctx = authorizedContext()
+  ctx.get = ((get) => (service) => (service === 'webServer' ? {
+    protocol: 'http:',
+    register: (value) => {
+      route = value
+      return () => {}
+    },
+  } : get(service)))(ctx.get)
+  installStatsRoute(ctx, createStatsCollector(ctx), {})
+  const response = responseSink()
+  route.handler({ method: 'GET', url: STATS_DATA_PATH, on: () => {} }, response)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(response.status, 503)
+  assert.equal(JSON.parse(response.body).error, 'stats-unavailable')
+})
+
+test('installStatsRoute waits for webServer through ctx.inject', () => {
+  let route
+  const ctx = authorizedContext()
+  let injected
+  ctx.inject = (dependencies, callback) => {
+    injected = dependencies
+    callback({
+      get: ctx.get,
+      effect: (register) => register(),
+      webServer: {
+        protocol: 'http:',
+        register: (value) => {
+          route = value
+          return () => {}
+        },
+      },
+    })
+  }
+  assert.equal(installStatsRoute(ctx, { collect: async () => ({}) }, {}), true)
+  assert.deepEqual(injected, ['webServer'])
+  assert.equal(route.path, STATS_DATA_PATH)
 })
 
 test('statsPage: false leaves the data route unregistered', () => {

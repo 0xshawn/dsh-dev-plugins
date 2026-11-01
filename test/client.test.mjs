@@ -154,7 +154,7 @@ function sessionContext(rows, subagentIds = []) {
 test('client bundle exports the Cordis plugin shape', async () => {
   const client = await loadClientBundle()
   assert.equal(client.name, 'dsh-remote-access-notifications')
-  assert.deepEqual(client.inject, ['remote', 'sessions', 'uiSession', 'slots', 'locale'])
+  assert.deepEqual(client.inject, ['remote', 'sessions', 'uiSession'])
   assert.equal(typeof client.apply, 'function')
   assert.equal(typeof client.__test.handleStatusChange, 'function')
 })

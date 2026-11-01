@@ -137,7 +137,7 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 首次打开会扫描全部历史，可能需要几秒；之后的请求复用按会话的折叠缓存，由实时 `session/event` 标脏增量更新。页面上的 **刷新** 按钮会强制全量重扫。用量归属于结算事件所在的本地日期，因此跨午夜的 Turn 计入结算当天。设置 `statsPage: false` 可同时移除侧边栏页面和数据路由。
 
-页面读取 `GET /dsh-remote-access/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区路径和日期键，不返回消息内容。
+页面读取 `GET /dsh-remote-access/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
 
 ## 工作原理
 
