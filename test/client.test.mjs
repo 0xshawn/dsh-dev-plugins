@@ -5,7 +5,7 @@ import { test } from 'node:test'
 const CLIENT_URL = new URL('../lib/client.js', import.meta.url)
 
 /** Load the hand-written client bundle through a fake module loader. */
-async function loadClientBundle() {
+async function loadClientBundle(requireMap = {}) {
   const source = await readFile(CLIENT_URL, 'utf8')
   let exports
   const window = {
@@ -13,6 +13,7 @@ async function loadClientBundle() {
       load(registration) {
         assert.equal(registration.id, 'dsh-remote-access')
         exports = registration.factory((name) => {
+          if (Object.hasOwn(requireMap, name)) return requireMap[name]
           throw new Error(`unexpected require(${name})`)
         })
       },
@@ -508,5 +509,113 @@ test('apply is a no-op when the browser has no Notification API', async () => {
     assert.equal(fixture.ctx.disposers.length, 0)
   } finally {
     globalThis.Notification = previous
+  }
+})
+
+test('token counts use compact units', async () => {
+  const client = await loadClientBundle()
+  assert.equal(client.__test.formatTokens(0), '0')
+  assert.equal(client.__test.formatTokens(999), '999')
+  assert.equal(client.__test.formatTokens(12345), '12.3K')
+  assert.equal(client.__test.formatTokens(3456789), '3.46M')
+  assert.equal(client.__test.formatTokens(1200000000), '1.20B')
+  assert.equal(client.__test.formatTokens(Number.NaN), '0')
+})
+
+test('time presets produce local inclusive ranges', async () => {
+  const client = await loadClientBundle()
+  const now = new Date(2026, 10, 1, 15, 0, 0).getTime()
+  const today = client.__test.rangeForPreset('today', now)
+  assert.equal(today.from, new Date(2026, 10, 1, 0, 0, 0, 0).getTime())
+  assert.equal(today.to, now)
+  const last7 = client.__test.rangeForPreset('7d', now)
+  assert.equal(last7.from, new Date(2026, 9, 26, 0, 0, 0, 0).getTime())
+  assert.deepEqual(client.__test.rangeForPreset('all', now), { from: null, to: null })
+  const custom = client.__test.rangeForPreset('custom', now, '2026-10-01', '2026-10-03')
+  assert.equal(custom.from, new Date(2026, 9, 1, 0, 0, 0, 0).getTime())
+  assert.equal(custom.to, new Date(2026, 9, 3, 23, 59, 59, 999).getTime())
+  assert.deepEqual(client.__test.rangeForPreset('custom', now, 'bad', '2026-10-03'), { from: null, to: null })
+  assert.equal(client.__test.parseDateInput('2026-02-30'), undefined)
+  assert.equal(client.__test.localDateInputValue(new Date(2026, 0, 2).getTime()), '2026-01-02')
+})
+
+test('the data URL keeps the proxy mount prefix and adds query values', async () => {
+  const client = await loadClientBundle()
+  const url = client.__test.statsDataUrl('https://dsh.example.com/ui/', {
+    from: 100,
+    to: 200,
+    timeZone: 'Asia/Shanghai',
+    refresh: true,
+  })
+  assert.equal(url.pathname, '/ui/dsh-remote-access/stats/data')
+  assert.equal(url.searchParams.get('from'), '100')
+  assert.equal(url.searchParams.get('to'), '200')
+  assert.equal(url.searchParams.get('tz'), 'Asia/Shanghai')
+  assert.equal(url.searchParams.get('refresh'), '1')
+  const root = client.__test.statsDataUrl('https://dsh.example.com/', {})
+  assert.equal(root.pathname, '/dsh-remote-access/stats/data')
+})
+
+test('apply registers the statistics panel and its sidebar entry', async () => {
+  const client = await loadClientBundle({ react: { createElement: () => undefined } })
+  const browser = installBrowser()
+  const previous = globalThis.__DSH_REMOTE_ACCESS_STATS__
+  delete globalThis.__DSH_REMOTE_ACCESS_STATS__
+  try {
+    const seats = []
+    const registrations = []
+    const fixture = fakeContext({ s1: row('Background task') })
+    fixture.ctx.slots = {
+      inject(seat, callback) {
+        seats.push(seat)
+        return callback()
+      },
+      register(registration) {
+        registrations.push(registration)
+        return () => {}
+      },
+    }
+    fixture.ctx.locale = {
+      register: () => () => {},
+      bind: () => (key) => key,
+    }
+    client.apply(fixture.ctx)
+    assert.deepEqual(seats, ['main', 'sidebar.panellist'])
+    assert.deepEqual(registrations.map((registration) => registration.name), ['main', 'sidebar.panellist'])
+    assert.equal(registrations[0].key, 'token-stats')
+    assert.equal(registrations[1].id, 'token-stats')
+    assert.equal(registrations[1].order, 55)
+    fixture.ctx.disposers.forEach((dispose) => dispose?.())
+  } finally {
+    if (previous === undefined) delete globalThis.__DSH_REMOTE_ACCESS_STATS__
+    else globalThis.__DSH_REMOTE_ACCESS_STATS__ = previous
+    browser.restore()
+  }
+})
+
+test('a disabled host statistics switch installs no panel', async () => {
+  const client = await loadClientBundle({ react: { createElement: () => undefined } })
+  const browser = installBrowser()
+  const previous = globalThis.__DSH_REMOTE_ACCESS_STATS__
+  try {
+    globalThis.__DSH_REMOTE_ACCESS_STATS__ = { enabled: false }
+    const seats = []
+    const fixture = fakeContext()
+    fixture.ctx.slots = {
+      inject(seat, callback) {
+        seats.push(seat)
+        return callback()
+      },
+      register: () => () => {},
+    }
+    fixture.ctx.locale = { register: () => () => {}, bind: () => (key) => key }
+    client.apply(fixture.ctx)
+    assert.deepEqual(seats, [])
+    assert.equal(client.__test.statsEnabled(), false)
+    fixture.ctx.disposers.forEach((dispose) => dispose?.())
+  } finally {
+    if (previous === undefined) delete globalThis.__DSH_REMOTE_ACCESS_STATS__
+    else globalThis.__DSH_REMOTE_ACCESS_STATS__ = previous
+    browser.restore()
   }
 })

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0 — 2026-11-01
+
+Workspace token statistics page.
+
+- New sidebar **Token usage** page (`statsPage`, default on): a full main panel
+  plus a `sidebar.panellist` entry. It aggregates provider-billed tokens across
+  every live and persisted Session on the Host, including subagents, and groups
+  them by workspace and local day.
+- Time presets are today, last 7 days, last 30 days, all time, and a custom
+  range; the day boundary uses the browser's IANA time zone. The page renders
+  summary cards (total, uncached input, output, cache read, cache write), a
+  daily bar chart, and a workspace table with session counts.
+- The Host replays each Session log through the same provider usage samples the
+  stock `tokenUsage` projection folds (replacement and retry aware) and skips
+  fork-inherited prefixes. A per-Session fold cache is invalidated by
+  `session/event`; the page's Refresh button forces a full rescan.
+- New read-only route `GET /dsh-remote-access/stats/data` on `ctx.webServer`,
+  guarded by the same trusted-authority and launch-token cookie checks as
+  `/api`. It returns token totals, workspace paths, and day keys only.
+- The first request scans the complete history and may take a few seconds;
+  later requests are incremental. Sessions without a workspace registration
+  fall back to a per-directory row.
+
 ## 0.3.8 — 2026-10-31
 
 Multi-tab coordination and stale-page reload.

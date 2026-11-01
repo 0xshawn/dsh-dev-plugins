@@ -42,12 +42,20 @@ test('plugin metadata follows the Cordis plugin shape', () => {
 })
 
 test('Config defaults keep the patch behaviour', () => {
-  assert.deepEqual(Config({}), { loopback: true, launchToken: '', loginPage: true, notifications: true })
-  assert.deepEqual(Config({ loopback: false, launchToken: 'fixed', loginPage: false, notifications: false }), {
+  assert.deepEqual(Config({}), { loopback: true, launchToken: '', loginPage: true, notifications: true, statsPage: true })
+  assert.deepEqual(Config({ loopback: false, launchToken: 'fixed', loginPage: false, notifications: false, statsPage: false }), {
     loopback: false,
     launchToken: 'fixed',
     loginPage: false,
     notifications: false,
+    statsPage: false,
+  })
+  assert.deepEqual(Config({ notifications: false, statsPage: false }), {
+    loopback: true,
+    launchToken: '',
+    loginPage: true,
+    notifications: false,
+    statsPage: false,
   })
   assert.throws(() => Config({ loopback: 'yes' }), /expected boolean/u)
 })
@@ -76,6 +84,7 @@ test('apply injects one loopback row into the served index', () => {
   assert.deepEqual(table, [
     loopbackIndexRow(),
     { kind: 'global', name: '__DSH_REMOTE_ACCESS_NOTIFY__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_REMOTE_ACCESS_STATS__', value: { enabled: true } },
   ])
 })
 
@@ -86,6 +95,7 @@ test('apply with loopback=false leaves the page authority alone but keeps config
   ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
   assert.deepEqual(table, [
     { kind: 'global', name: '__DSH_REMOTE_ACCESS_NOTIFY__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_REMOTE_ACCESS_STATS__', value: { enabled: true } },
   ])
 })
 

@@ -9,7 +9,7 @@
 
 ## 解决的问题
 
-上游 `dsh web` 是为"浏览器在同一台机器"设计的。换用其它权威（authority）访问时有四处缺失或失效：
+上游 `dsh web` 是为"浏览器在同一台机器"设计的。换用其它权威（authority）访问时有六处缺失或失效：
 
 | 问题 | 上游行为 | 本插件 |
 |---|---|---|
@@ -18,6 +18,7 @@
 | 启动令牌 | 每个进程随机生成，重启后只能从服务日志里找登录 URL | 通过 `DSH_WEB_TOKEN`（或插件配置）固定令牌，重启后登录 URL 不变 |
 | 首次登录 | 直接打开裸地址返回纯文本 `401`，必须使用打印出来的 `?token=` URL | 裸地址上提供 HTML 令牌输入框（`loginPage`，默认开启），提交后仍走上游的令牌交换 |
 | 后台提醒 | 标签页在后台时，任务完成或等待批准/回答都不可见 | 用浏览器通知提醒任务完成和待处理输入（`notifications`，默认开启） |
+| Token 用量历史 | 聊天统计条只显示当前会话，没有跨会话或工作区视图 | 增加侧边栏 **Token 统计** 页，从宿主持久化会话日志按工作区和日期聚合 provider 计费 token（`statsPage`，默认开启） |
 
 认证机制不变：浏览器仍需用启动令牌换取与权威绑定的签名会话 Cookie，每次 `/api` 请求仍先经过 Host/Origin 围栏。本插件只消除部署摩擦，不新增也不绕过访问控制。
 
@@ -84,6 +85,8 @@ dsh web --host 127.0.0.1 --port 3080 --no-open
     loginPage: true
     # 启用浏览器通知的客户端半边。
     notifications: true
+    # 启用侧边栏 Token 统计页及其只读数据路由。
+    statsPage: true
 ```
 
 ### 首次登录：不用带 token 的 URL
@@ -121,6 +124,21 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 限制：这里用的是页面级 Web Notification，不是 Web Push。dsh 页面必须保持打开（可以切到后台）；浏览器完全关闭后不会收到通知。通知权限需要安全上下文，因此使用 HTTPS 或 loopback，局域网纯 HTTP 不行。通知正文包含会话标题，锁屏预览可能暴露它。
 
+### Token 统计
+
+侧边栏新增 **Token 统计** 入口，打开后包含：
+
+- 时间预设（今天、近 7 天、近 30 天、全部、自定义），日界按浏览器 IANA 时区计算；
+- 按天柱状图展示 provider 计费 token；
+- 汇总卡片：总数、未缓存输入、输出、缓存读、缓存写；
+- 工作区表格：会话数与同样的四列 token。
+
+数据来自宿主持久化的会话日志，通过 `ctx.sessionQuery` 读取且不会激活任何 Agent。插件重放与上游 `tokenUsage` 投影相同的 provider usage 样本：每个 Turn/step 一次结算，重试的 step 按替换后的 attempt 计入；fork 继承的事件前缀会被跳过，避免子会话重复计算父会话用量。子代理会话计入统计，并沿父会话链归到对应工作区；未登记工作区的会话按目录单列，没有目录的会话归入“其他会话”。
+
+首次打开会扫描全部历史，可能需要几秒；之后的请求复用按会话的折叠缓存，由实时 `session/event` 标脏增量更新。页面上的 **刷新** 按钮会强制全量重扫。用量归属于结算事件所在的本地日期，因此跨午夜的 Turn 计入结算当天。设置 `statsPage: false` 可同时移除侧边栏页面和数据路由。
+
+页面读取 `GET /dsh-remote-access/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
+
 ## 工作原理
 
 本包是一个 dsh **bundle**：`cordis.patch.yml` 是叠加在 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app` 之上的 patch 层，用到以下扩展点。
@@ -138,6 +156,8 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 
 5. **通知 —— 客户端插件。** `package.json` 声明 `dsh.client`（`platform: web`）并导出 `./client`；`dsh-client-modules` 把浏览器 bundle 发给页面。客户端通过 `sessions` 与 `uiSession` 服务订阅 `ctx.uiSession.sessionStatus`，在本地发 Web Notification；`ctx.remote.$on('api-session/error')` 为下一次空闲转变提供失败详情。宿主侧只注入 `config.notifications` 对应的 `__DSH_REMOTE_ACCESS_NOTIFY__` 开关。
+6. **Token 统计 —— 宿主路由加客户端页面。** 每个会话日志被折叠成 provider usage 结算记录（`assistant/message`/`assistant/attempt` 的 usage 样本，处理替换与重试），并按会话 id 缓存。`session/event` 监听器把会话标脏，下次请求只重读变化部分。宿主在 `ctx.webServer` 上注册精确路由 `/dsh-remote-access/stats/data`，并用 `connection.isTrusted` 与 `connection.browserAuth.isAuthenticated` 校验。浏览器半边注册 `main` 面板与 `sidebar.panellist` 入口；宿主根据 `config.statsPage` 注入 `__DSH_REMOTE_ACCESS_STATS__` 开关。
+
 ## 安全说明
 
 - **启动令牌就是凭据。** 持有打印出来的 `?token=` URL 即可换取会话 Cookie 并获得完整 owner 权限。请谨慎分发；固定令牌是长期凭据，绝不能提交到仓库。修改 `DSH_WEB_TOKEN` 并重启只会让旧 URL 失效，**不会**吊销已经签发的 Cookie（默认有效期 `cookieMaxAgeDays` 为 30 天）；要真正吊销，请清除该站点的 Cookie，或删除 browser-session 凭据记录后重启。
@@ -147,6 +167,7 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 - **纯 HTTP 会泄露令牌。** 在代理侧或通过 `--tls-cert/--tls-key` 终结 TLS；Cookie 的 `Secure` 行为见上游文档。
 - **通知会在系统通知/锁屏上显示会话标题。** 权限按浏览器来源授予；对共享屏幕或锁屏环境敏感时可用 `notifications: false` 关闭。
 - **登录表单不做限流。** 它只是把同一个高熵启动令牌的输入入口暴露出来；对公网端点仍建议在代理层做限流。Host/Origin 围栏拒绝的权威永远不会看到表单。
+- **统计路由会暴露用量元数据。** 它与 `/api` 使用同一套启动令牌 Cookie 和受信任权威围栏；返回内容只有按工作区/按天的 token 总量和工作区路径，不含提示词、回复或工具参数。持有 owner 凭据的人本来就能看到完整界面；`statsPage: false` 可移除该路由。
 - **不要新增会拦截内联脚本的 CSP。** 回环视图行是一段内联经典脚本；dsh 自身的启动全局变量已经要求内联脚本权限，但代理注入的不含 `'unsafe-inline'`（或未用 nonce 覆盖）的 CSP 会静默拦截该脚本，而页面仍能加载。
 
 ## 兼容性
@@ -159,13 +180,14 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 - 固定令牌依赖 `connection.browserAuth.launchToken` 字段。若 dsh 改变该结构，配置了令牌时插件会在启动阶段报错；取消令牌配置或升级插件即可。
 - 登录表单包装 `connection.authorizeIndex` 并读取 `browserAuth.isAuthenticated`。若未来 dsh 移除二者，表单会被跳过，裸地址恢复上游纯文本 `401`，插件其余功能继续工作。
 - 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。
+- Token 统计依赖 `ctx.sessionQuery`（`listSessions` 与 `readSession`）、`ctx.workspaceRegistry`（可选；缺失时回退为按目录分组）以及 `ctx.webServer.register`。会话查询服务缺失时，数据路由返回 `503`，页面显示加载错误。
 - 固定动作只在启动时执行一次。宿主插件热重载（HMR）可能用 dsh 缓存的每进程令牌重建 Connection 服务，且不会重新打印启动 URL；更换令牌或升级 dsh 后请重启 `dsh web`。
 
 ## 开发
 
 ```sh
 npm install
-npm test        # node:test：配置、令牌解析、index 注入的单元测试
+npm test        # node:test：配置、令牌解析、index 注入、用量折叠与路由鉴权单元测试
 ```
 
 隔离 home 的端到端验证（不影响真实 profile）：
