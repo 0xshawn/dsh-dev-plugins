@@ -1,29 +1,30 @@
 {
-  "name": "dsh-remote-access",
-  "version": "0.4.0",
-  "description": "Serve the DeepSeek Harness Web UI through a non-localhost authority: declarative /api trusted hosts, loopback page parity, and a pinned launch token, without patching the installed dsh.",
+  "name": "dsh-dev-plugins",
+  "version": "0.5.0",
+  "description": "Public DeepSeek Harness (dsh) dev plugins: non-localhost Web UI serving, browser notifications, and workspace token statistics, without patching the installed dsh.",
   "keywords": [
     "dsh",
     "deepseek-harness",
     "plugin",
     "bundle",
+    "dev-plugins",
     "web",
-    "remote-access",
     "reverse-proxy",
     "trusted-host",
     "web-token",
+    "notifications",
     "token-usage",
     "statistics"
   ],
   "license": "MIT",
   "author": "shawn (https://github.com/0xshawn)",
-  "homepage": "https://github.com/0xshawn/dsh-remote-access#readme",
+  "homepage": "https://github.com/0xshawn/dsh-dev-plugins#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xshawn/dsh-remote-access.git"
+    "url": "git+https://github.com/0xshawn/dsh-dev-plugins.git"
   },
   "bugs": {
-    "url": "https://github.com/0xshawn/dsh-remote-access/issues"
+    "url": "https://github.com/0xshawn/dsh-dev-plugins/issues"
   },
   "type": "module",
   "main": "lib/index.js",

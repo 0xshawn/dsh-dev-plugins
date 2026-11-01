@@ -2,9 +2,11 @@
 
 ## Scope
 
-`dsh-remote-access` is the public DeepSeek Harness (dsh) web bundle: the host
+`dsh-dev-plugins` is the public DeepSeek Harness (dsh) web bundle: the host
 plugin in `lib/index.js`, the browser client in `lib/client.js`, the bundle
 patch in `cordis.patch.yml`, and the install/behaviour docs in `README*.md`.
+It is a multi-feature bundle: keep new plugin features in their own `lib/`
+modules and document each one in both READMEs.
 
 ## Workflow
 

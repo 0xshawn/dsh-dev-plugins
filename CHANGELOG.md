@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.0 — 2026-11-01
+
+Renamed the bundle from `dsh-remote-access` to `dsh-dev-plugins`.
+
+- The npm package, profile row id, client module id, feature-flag globals
+  (`__DSH_DEV_PLUGINS_NOTIFY__`, `__DSH_DEV_PLUGINS_STATS__`), stats route
+  (`/dsh-dev-plugins/stats/data`), browser storage keys, and notification tags
+  (`dsh-dev-plugins:*`) are renamed.
+- `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` is renamed to
+  `DSH_DEV_PLUGINS_TRUSTED_HOSTS`. Update the service environment and the
+  profile row (`dsh plugin --profile web remove dsh-remote-access`, then add
+  this package).
+- No behaviour change. Browser storage keys are renamed, so open tabs rebuild
+  their cross-tab state after the reload that the bundle revision triggers. A
+  notification still on screen under the old tag is left in place by the
+  browser; new notifications use the new tag.
+- Entries below keep the identifiers that shipped with them: a deployment
+  pinned before 0.5.0 still uses `dsh-remote-access`,
+  `DSH_REMOTE_ACCESS_TRUSTED_HOSTS`, `__DSH_REMOTE_ACCESS_*`, and
+  `/dsh-remote-access/stats/data`. Their current spellings are used above.
+
 ## 0.4.0 — 2026-11-01
 
 Workspace token statistics page.
@@ -16,7 +37,7 @@ Workspace token statistics page.
   stock `tokenUsage` projection folds (replacement and retry aware) and skips
   fork-inherited prefixes. A per-Session fold cache is invalidated by
   `session/event`; the page's Refresh button forces a full rescan.
-- New read-only route `GET /dsh-remote-access/stats/data` on `ctx.webServer`,
+- New read-only route `GET /dsh-dev-plugins/stats/data` on `ctx.webServer`,
   guarded by the same trusted-authority and launch-token cookie checks as
   `/api`. It returns token totals, workspace paths, and day keys only.
 - The first request scans the complete history and may take a few seconds;
@@ -31,7 +52,7 @@ Multi-tab coordination and stale-page reload.
   notifications for that Session, and a per-event claim prevents hidden tabs from
   duplicating the same notification.
 - Poll the served boot manifest every 15 seconds and reload the page when the
-  `dsh-remote-access` bundle revision changes, so an open page stops running old
+  `dsh-dev-plugins` bundle revision changes, so an open page stops running old
   notification code after a hot update. The first release with this check still
   needs one manual refresh to install it.
 - Keep the per-session notification rules: background Sessions notify even when
@@ -127,7 +148,7 @@ Browser notifications.
   Subagent and removed sessions are skipped, and clicking a notification
   focuses the dsh window.
 - Add the `notifications` host config (default on) and inject
-  `__DSH_REMOTE_ACCESS_NOTIFY__` for the client half.
+  `__DSH_DEV_PLUGINS_NOTIFY__` for the client half.
 - Limitations documented: page-based Web Notifications, no Web Push, page must
   stay open, requires a secure context, and titles appear in OS notifications.
 
@@ -150,7 +171,7 @@ First-login form.
 
 Initial release.
 
-- Bundle patch appends `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` authorities to the
+- Bundle patch appends `DSH_DEV_PLUGINS_TRUSTED_HOSTS` authorities to the
   `/api` Host/Origin fence, keeping the invocation's `--trusted-host` values.
   One expression covers the dsh 0.2.0 `webRuntime` and 0.2.1 `webStartup`
   service layouts; `webRuntime` is preferred so a 0.2.0 wildcard bind keeps its
