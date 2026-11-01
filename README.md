@@ -275,8 +275,8 @@ to an extension-id allowlist). Every tool call is appended to
 only reads real files under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default
 `~/Downloads,~/Desktop`), `download op:"url"` writes only under
 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` (default `~/Downloads/dsh-browser`) —
-page-triggered downloads keep Chrome's own download folder; screenshots are
-returned as image blocks and never written — and network bodies stay in memory. Risky tools can be switched off individually
+page-triggered downloads keep Chrome's own download folder. Screenshots are
+returned as image blocks and never written, and network bodies stay in memory. Risky tools can be switched off individually
 with `DSH_BROWSER_BRIDGE_DISABLE`, and `DSH_BROWSER_BRIDGE=0` exits the bridge
 so no browser tools are registered.
 

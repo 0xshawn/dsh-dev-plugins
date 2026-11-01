@@ -553,10 +553,10 @@ const cookiesTool = {
         if (typeof params.name === 'string' && params.name !== '') {
           // CDP rejects deleteCookies without a url or domain.
           const url = params.urls?.[0] ?? session.urlFor(tabId)
-          if (typeof url !== 'string' || url === '') {
+          if (typeof url !== 'string' || !/^https?:/u.test(url)) {
             throw toolError(
               'invalid_params',
-              'cookies clear by name needs a url: pass urls or open a page first',
+              'cookies clear by name needs an http(s) url: pass urls or open a page first',
             )
           }
           await session.send(tabId, 'Network.deleteCookies', { name: params.name, url })

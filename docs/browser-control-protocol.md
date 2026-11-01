@@ -95,7 +95,7 @@ screenshot-producing calls, one `image` block (`image/png`). Tool errors use
 | tool | params | notes |
 |---|---|---|
 | `tabs` | `{ op: "list" \| "new" \| "select" \| "close", tabId?, url? }` | `select` activates; `new` opens an active tab |
-| `navigate` | `{ url?, back?, forward?, reload?, waitUntil? }` | exactly one navigation verb; `waitUntil` `load` (default) / `domcontentloaded` / `none`; returns `{ url, title }` |
+| `navigate` | `{ url?, back?, forward?, reload?, waitUntil? }` | exactly one navigation verb; `waitUntil` `load` (default) / `domcontentloaded` / `none`; returns `{ url, title }`; a failed navigation or a missing history entry fails with `navigate_failed` |
 | `observe` | `{ selector?, maxElements?, screenshot? }` | `{ url, title, text, elements: [{ ref, role, name, tag, value?, disabled?, bounds }] , refsInvalidatedAt }`; refs are stable until the next `observe`, a navigation, or selecting a different tab. `value` is omitted for password inputs |
 | `screenshot` | `{ fullPage?, ref?, selector? }` | image content block only (never written to disk); element clips use the page-relative offset so scrolled pages crop correctly; device pixel ratio respected |
 | `wait` | `{ selector?, text?, networkIdle?, timeoutMs? }` | first satisfied condition; default timeout 15 s |
@@ -104,10 +104,10 @@ screenshot-producing calls, one `image` block (`image/png`). Tool errors use
 | `key` | `{ keys }` | e.g. `"Control+A"`, `"Enter"`, `"Escape"` |
 | `scroll` | `{ ref?, selector?, deltaX?, deltaY?, toTop?, toBottom? }` | element or viewport |
 | `dialog` | `{ accept, promptText? }` | answers the pending `Page.javascriptDialogOpening`; `{ pending: false }` when none |
-| `evaluate` | `{ expression, awaitPromise?, timeoutMs? }` | main world; result JSON-serialized; default timeout 10 s |
+| `evaluate` | `{ expression, awaitPromise?, timeoutMs? }` | main world; result JSON-serialized; default timeout 10 s; results over 1 MiB fail with `evaluate_too_large` instead of truncating |
 | `network` | `{ op: "start" \| "stop" \| "list" \| "body" \| "clear", requestId? }` | ring buffer of 500 requests by default; `body` waits for the request to finish (5 s) and retries briefly while Chrome reports the body as not yet available, then returns at most 2 MB (`truncated`, `size`, `mimeType`, `base64`); nothing written to disk |
 | `upload` | `{ ref?, selector?, paths: string[] }` | `~`/`~/...` expands against the user home; paths must resolve under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default `~/Downloads,~/Desktop`), symlinks resolved; uses `DOM.setFileInputFiles` |
-| `download` | `{ op: "url" \| "list", url?, filename? }` | `url` fetches the http(s) URL in the bridge and streams it into `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` (default `~/Downloads/dsh-browser`), returning `{ filename, path, size }`; `list` reports recent Chrome downloads as `{ guid, url, filename, path, state, bytesReceived, totalBytes }`. Page-triggered downloads follow Chrome's own download setting, not this directory — Chrome refuses browser-level download routing from an extension debugger session. |
+| `download` | `{ op: "url" \| "list", url?, filename? }` | `url` fetches the http(s) URL in the bridge and streams it into `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` (default `~/Downloads/dsh-browser`), returning `{ filename, path, size }` and never overwriting an existing file (collisions become `name (1).ext`); `list` reports recent Chrome downloads as `{ guid, url, filename, path, state, bytesReceived, totalBytes }`. Page-triggered downloads follow Chrome's own download setting, not this directory — Chrome refuses browser-level download routing from an extension debugger session. |
 | `cookies` | `{ op: "get" \| "set" \| "clear", urls?, cookies?, name? }` | CDP `Network.getCookies` / `setCookie` / `deleteCookies`; clearing by `name` needs `urls` or uses the current tab URL, and clearing without a name wipes every cookie in the profile |
 | `storage` | `{ op: "get" \| "set" \| "clear", area?, key?, value? }` | `area` `local` (default) / `session`; string values |
 
@@ -146,6 +146,8 @@ reduced to `{ length }`.
   `hello`.
 - Tab closed or debugger detached underneath: the bridge drops cached refs for
   that tab and returns `tab_unavailable`.
+- Navigation failure: `navigate_failed` (CDP `errorText` or a missing
+  back/forward history entry). Oversized `evaluate` results: `evaluate_too_large`.
 - Tab switch during a session: the first command targeting a new tab attaches
   it, and selecting a different tab invalidates the previous tab's refs; refs
   also die when their tab navigates.
