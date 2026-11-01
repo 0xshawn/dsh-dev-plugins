@@ -11,7 +11,7 @@ async function loadClientBundle(requireMap = {}) {
   const window = {
     __ModuleLoader__: {
       load(registration) {
-        assert.equal(registration.id, 'dsh-remote-access')
+        assert.equal(registration.id, 'dsh-dev-plugins')
         exports = registration.factory((name) => {
           if (Object.hasOwn(requireMap, name)) return requireMap[name]
           throw new Error(`unexpected require(${name})`)
@@ -57,7 +57,7 @@ function installBrowser(overrides = {}) {
     Notification: globalThis.Notification,
     document: globalThis.document,
     localStorage: globalThis.localStorage,
-    config: globalThis.__DSH_REMOTE_ACCESS_NOTIFY__,
+    config: globalThis.__DSH_DEV_PLUGINS_NOTIFY__,
   }
   const store = new Map()
   const listeners = new Map()
@@ -75,8 +75,8 @@ function installBrowser(overrides = {}) {
     setItem: (key, value) => store.set(key, String(value)),
     removeItem: (key) => store.delete(key),
   }
-  delete globalThis.__DSH_REMOTE_ACCESS_NOTIFY__
-  if (overrides.config !== undefined) globalThis.__DSH_REMOTE_ACCESS_NOTIFY__ = overrides.config
+  delete globalThis.__DSH_DEV_PLUGINS_NOTIFY__
+  if (overrides.config !== undefined) globalThis.__DSH_DEV_PLUGINS_NOTIFY__ = overrides.config
   return {
     document,
     listeners,
@@ -85,8 +85,8 @@ function installBrowser(overrides = {}) {
       globalThis.document = previous.document
       if (previous.localStorage === undefined) delete globalThis.localStorage
       else globalThis.localStorage = previous.localStorage
-      if (previous.config === undefined) delete globalThis.__DSH_REMOTE_ACCESS_NOTIFY__
-      else globalThis.__DSH_REMOTE_ACCESS_NOTIFY__ = previous.config
+      if (previous.config === undefined) delete globalThis.__DSH_DEV_PLUGINS_NOTIFY__
+      else globalThis.__DSH_DEV_PLUGINS_NOTIFY__ = previous.config
     },
   }
 }
@@ -153,7 +153,7 @@ function sessionContext(rows, subagentIds = []) {
 
 test('client bundle exports the Cordis plugin shape', async () => {
   const client = await loadClientBundle()
-  assert.equal(client.name, 'dsh-remote-access-notifications')
+  assert.equal(client.name, 'dsh-dev-plugins-notifications')
   assert.deepEqual(client.inject, ['remote', 'sessions', 'uiSession'])
   assert.equal(typeof client.apply, 'function')
   assert.equal(typeof client.__test.handleStatusChange, 'function')
@@ -445,17 +445,17 @@ test('a quick retry cancels the pending notification', async (t) => {
 
 test('the boot manifest revision is parsed for the stale-page check', async () => {
   const client = await loadClientBundle()
-  const html = '<script>globalThis["__DSH_BOOT__"] = {"rev":"boot","entries":[{"id":"other","rev":"x"},{"id":"dsh-remote-access","rev":"plugin-rev"}]}</script>'
+  const html = '<script>globalThis["__DSH_BOOT__"] = {"rev":"boot","entries":[{"id":"other","rev":"x"},{"id":"dsh-dev-plugins","rev":"plugin-rev"}]}</script>'
   assert.equal(client.__test.parseBootRev(html), 'plugin-rev')
   assert.equal(client.__test.parseBootRev('<html></html>'), undefined)
-  assert.equal(client.__test.bootEntryRev({ entries: [{ id: 'dsh-remote-access', rev: 'r' }] }), 'r')
+  assert.equal(client.__test.bootEntryRev({ entries: [{ id: 'dsh-dev-plugins', rev: 'r' }] }), 'r')
 })
 
 test('another focused tab viewing the session suppresses the notification', async () => {
   const client = await loadClientBundle()
   const browser = installBrowser({ visibilityState: 'visible', focused: true })
   try {
-    globalThis.localStorage.setItem('dsh-remote-access:viewing', JSON.stringify({
+    globalThis.localStorage.setItem('dsh-dev-plugins:viewing', JSON.stringify({
       pageId: 'other-tab',
       sessionId: 's1',
       focused: true,
@@ -474,7 +474,7 @@ test('one tab claims a notification event so hidden tabs do not duplicate it', a
   try {
     assert.equal(client.__test.claimNotification('s1', 'complete'), true)
     globalThis.localStorage.setItem(
-      'dsh-remote-access:claim:s1:complete',
+      'dsh-dev-plugins:claim:s1:complete',
       JSON.stringify({ pageId: 'other-tab', at: Date.now() }),
     )
     assert.equal(client.__test.claimNotification('s1', 'complete'), false)
@@ -491,7 +491,7 @@ test('syncViewing publishes the focused main session and currentMainSessionId fi
     const context = sessionContext({ s1: row('Main', { retainedBy: { mainView: 1 } }) })
     assert.equal(client.__test.currentMainSessionId(context.sessions), 's1')
     client.__test.syncViewing(context.sessions)
-    const record = JSON.parse(globalThis.localStorage.getItem('dsh-remote-access:viewing'))
+    const record = JSON.parse(globalThis.localStorage.getItem('dsh-dev-plugins:viewing'))
     assert.equal(record.sessionId, 's1')
     assert.equal(record.focused, true)
   } finally {
@@ -547,20 +547,20 @@ test('the data URL keeps the proxy mount prefix and adds query values', async ()
     timeZone: 'Asia/Shanghai',
     refresh: true,
   })
-  assert.equal(url.pathname, '/ui/dsh-remote-access/stats/data')
+  assert.equal(url.pathname, '/ui/dsh-dev-plugins/stats/data')
   assert.equal(url.searchParams.get('from'), '100')
   assert.equal(url.searchParams.get('to'), '200')
   assert.equal(url.searchParams.get('tz'), 'Asia/Shanghai')
   assert.equal(url.searchParams.get('refresh'), '1')
   const root = client.__test.statsDataUrl('https://dsh.example.com/', {})
-  assert.equal(root.pathname, '/dsh-remote-access/stats/data')
+  assert.equal(root.pathname, '/dsh-dev-plugins/stats/data')
 })
 
 test('apply registers the statistics panel and its sidebar entry', async () => {
   const client = await loadClientBundle({ react: { createElement: () => undefined } })
   const browser = installBrowser()
-  const previous = globalThis.__DSH_REMOTE_ACCESS_STATS__
-  delete globalThis.__DSH_REMOTE_ACCESS_STATS__
+  const previous = globalThis.__DSH_DEV_PLUGINS_STATS__
+  delete globalThis.__DSH_DEV_PLUGINS_STATS__
   try {
     const seats = []
     const registrations = []
@@ -587,8 +587,8 @@ test('apply registers the statistics panel and its sidebar entry', async () => {
     assert.equal(registrations[1].order, 55)
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
-    if (previous === undefined) delete globalThis.__DSH_REMOTE_ACCESS_STATS__
-    else globalThis.__DSH_REMOTE_ACCESS_STATS__ = previous
+    if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
+    else globalThis.__DSH_DEV_PLUGINS_STATS__ = previous
     browser.restore()
   }
 })
@@ -596,9 +596,9 @@ test('apply registers the statistics panel and its sidebar entry', async () => {
 test('a disabled host statistics switch installs no panel', async () => {
   const client = await loadClientBundle({ react: { createElement: () => undefined } })
   const browser = installBrowser()
-  const previous = globalThis.__DSH_REMOTE_ACCESS_STATS__
+  const previous = globalThis.__DSH_DEV_PLUGINS_STATS__
   try {
-    globalThis.__DSH_REMOTE_ACCESS_STATS__ = { enabled: false }
+    globalThis.__DSH_DEV_PLUGINS_STATS__ = { enabled: false }
     const seats = []
     const fixture = fakeContext()
     fixture.ctx.slots = {
@@ -614,8 +614,8 @@ test('a disabled host statistics switch installs no panel', async () => {
     assert.equal(client.__test.statsEnabled(), false)
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
-    if (previous === undefined) delete globalThis.__DSH_REMOTE_ACCESS_STATS__
-    else globalThis.__DSH_REMOTE_ACCESS_STATS__ = previous
+    if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
+    else globalThis.__DSH_DEV_PLUGINS_STATS__ = previous
     browser.restore()
   }
 })

@@ -37,7 +37,7 @@ function fakeConnection() {
 }
 
 test('plugin metadata follows the Cordis plugin shape', () => {
-  assert.equal(name, 'dsh-remote-access')
+  assert.equal(name, 'dsh-dev-plugins')
   assert.deepEqual(inject, ['connection'])
 })
 
@@ -83,8 +83,8 @@ test('apply injects one loopback row into the served index', () => {
   ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
   assert.deepEqual(table, [
     loopbackIndexRow(),
-    { kind: 'global', name: '__DSH_REMOTE_ACCESS_NOTIFY__', value: { enabled: true } },
-    { kind: 'global', name: '__DSH_REMOTE_ACCESS_STATS__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_NOTIFY__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_STATS__', value: { enabled: true } },
   ])
 })
 
@@ -94,8 +94,8 @@ test('apply with loopback=false leaves the page authority alone but keeps config
   const table = []
   ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
   assert.deepEqual(table, [
-    { kind: 'global', name: '__DSH_REMOTE_ACCESS_NOTIFY__', value: { enabled: true } },
-    { kind: 'global', name: '__DSH_REMOTE_ACCESS_STATS__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_NOTIFY__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_STATS__', value: { enabled: true } },
   ])
 })
 
@@ -143,10 +143,10 @@ test('pinLaunchToken surfaces a read-only token field', () => {
 test('bundle patch declares deployment authorities for the /api fence', async () => {
   const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
   assert.match(patch, /id: connection/u)
-  assert.match(patch, /DSH_REMOTE_ACCESS_TRUSTED_HOSTS/u)
+  assert.match(patch, /DSH_DEV_PLUGINS_TRUSTED_HOSTS/u)
   assert.match(patch, /ctx\.get\('webStartup'\)/u)
   assert.match(patch, /ctx\.get\('webRuntime'\)/u)
-  assert.match(patch, /name: dsh-remote-access/u)
+  assert.match(patch, /name: dsh-dev-plugins/u)
 })
 
 /** Read the `trustedHosts` expression from the shipped bundle patch. */
@@ -186,11 +186,11 @@ test('bundle patch appends trimmed environment authorities and ignores empties',
   const expression = await patchTrustedHostsExpression()
   assert.deepEqual(
     evaluatePatch(expression, {}, {
-      DSH_REMOTE_ACCESS_TRUSTED_HOSTS: ' env.example.test , env2.example.test:8443 , ',
+      DSH_DEV_PLUGINS_TRUSTED_HOSTS: ' env.example.test , env2.example.test:8443 , ',
     }),
     ['env.example.test', 'env2.example.test:8443'],
   )
-  assert.deepEqual(evaluatePatch(expression, {}, { DSH_REMOTE_ACCESS_TRUSTED_HOSTS: '' }), [])
+  assert.deepEqual(evaluatePatch(expression, {}, { DSH_DEV_PLUGINS_TRUSTED_HOSTS: '' }), [])
 })
 
 

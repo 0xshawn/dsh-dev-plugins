@@ -1,9 +1,9 @@
-# dsh-remote-access
+# dsh-dev-plugins
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-让 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码。
+一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知和工作区 token 用量页。
 
 [English](./README.md)
 
@@ -13,7 +13,7 @@
 
 | 问题 | 上游行为 | 本插件 |
 |---|---|---|
-| `/api` 的 Host/Origin 信任围栏 | 只接受 loopback、监听绑定的 IP 字面量和 `--trusted-host`；经代理的权威访问所有 RPC 返回 `403` | 把 `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` 中的权威追加进同一列表（`--trusted-host` 继续有效） |
+| `/api` 的 Host/Origin 信任围栏 | 只接受 loopback、监听绑定的 IP 字面量和 `--trusted-host`；经代理的权威访问所有 RPC 返回 `403` | 把 `DSH_DEV_PLUGINS_TRUSTED_HOSTS` 中的权威追加进同一列表（`--trusted-host` 继续有效） |
 | 页面视图（`connection.isLoopback`） | 仅由 `location.hostname` 判定；经代理的页面被当作非回环，dsh 0.2.0 下设置只存在于进程内存（Models 页报 `settings are unavailable in this browser`），所有版本都会隐藏打开宿主机配置文件的操作 | 注入 `__DSH_TRANSPORT__ = { ownsHost: true }` —— dsh 桌面壳使用的宿主自有传输钩子 —— 已认证页面因此呈现回环视图 |
 | 启动令牌 | 每个进程随机生成，重启后只能从服务日志里找登录 URL | 通过 `DSH_WEB_TOKEN`（或插件配置）固定令牌，重启后登录 URL 不变 |
 | 首次登录 | 直接打开裸地址返回纯文本 `401`，必须使用打印出来的 `?token=` URL | 裸地址上提供 HTML 令牌输入框（`loginPage`，默认开启），提交后仍走上游的令牌交换 |
@@ -26,19 +26,21 @@
 
 ```sh
 # 从 GitHub 安装（公开仓库，无需构建）
-dsh plugin --profile web add git+https://github.com/0xshawn/dsh-remote-access.git
+dsh plugin --profile web add git+https://github.com/0xshawn/dsh-dev-plugins.git
 
 # 或从本地源码安装
-dsh plugin --profile web add /path/to/dsh-remote-access
+dsh plugin --profile web add /path/to/dsh-dev-plugins
 ```
 
 之后重启 `dsh web`（dsh 在启动时加载 bundle）。确认插件行已生效：
 
 ```sh
-dsh --profile web --dump-config | grep -A6 'dsh-remote-access'
+dsh --profile web --dump-config | grep -A6 'dsh-dev-plugins'
 ```
 
-卸载：`dsh plugin --profile web remove dsh-remote-access`，下次重启即恢复上游默认行为。
+卸载：`dsh plugin --profile web remove dsh-dev-plugins`，下次重启即恢复上游默认行为。
+
+> **0.5.0 起改名。** 原包名为 `dsh-remote-access`；profile 行名与环境变量现为 `dsh-dev-plugins` 和 `DSH_DEV_PLUGINS_TRUSTED_HOSTS`。请先移除旧行再添加新行，并同步修改服务环境中的变量名。
 
 ### 从源码 patch 迁移
 
@@ -46,7 +48,7 @@ dsh --profile web --dump-config | grep -A6 'dsh-remote-access'
 
 1. 安装脚本里不再执行 patch；`npm install -g @deepseek-ai/dsh@<version>` 之后不需要补 patch 步骤。
 2. 按上面的方式把本 bundle 装进 `web` profile，重启 `dsh web`。
-3. 保留部署原有的 `DSH_WEB_TOKEN`（变量名相同，直接沿用）；`--trusted-host` 可继续使用，也可改配 `DSH_REMOTE_ACCESS_TRUSTED_HOSTS`。
+3. 保留部署原有的 `DSH_WEB_TOKEN`（变量名相同，直接沿用）；`--trusted-host` 可继续使用，也可改配 `DSH_DEV_PLUGINS_TRUSTED_HOSTS`。
 4. 确认启动日志仍打印固定令牌：`dsh web: ...?token=<同一个令牌>`。
 
 ## 配置
@@ -55,14 +57,14 @@ dsh --profile web --dump-config | grep -A6 'dsh-remote-access'
 
 | 变量 | 取值 | 作用 |
 |---|---|---|
-| `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` | 逗号分隔的裸权威，如 `dsh.example.com,dsh.example.com:8443` | 追加到 `--trusted-host`；不带端口的条目匹配任意端口 |
+| `DSH_DEV_PLUGINS_TRUSTED_HOSTS` | 逗号分隔的裸权威，如 `dsh.example.com,dsh.example.com:8443` | 追加到 `--trusted-host`；不带端口的条目匹配任意端口 |
 | `DSH_WEB_TOKEN` | 非空启动令牌 | 固定登录令牌；为空或未设置时保持上游的每进程随机令牌 |
 
 两者都可以放在 systemd 的 `Environment=`/`EnvironmentFile=`、launchd 的 `EnvironmentVariables`、Docker 环境变量或 shell profile 中。习惯命令行参数时继续用 `--trusted-host` 即可；表达式会把这些环境权威追加到命令行列表之后。注意 patch 层会整体替换 `connection.config`：若另一个层（或更靠后的 profile patch）覆盖了 `connection`，需要在那里重新写上 `trustedHosts`（否则环境权威会丢失），并补齐仍需保留的键，例如 `cookieMaxAgeDays`、`recovery`。
 
 ```sh
 DSH_WEB_TOKEN="$(cat /etc/dsh/web-token)" \
-DSH_REMOTE_ACCESS_TRUSTED_HOSTS="dsh.example.com" \
+DSH_DEV_PLUGINS_TRUSTED_HOSTS="dsh.example.com" \
 dsh web --host 127.0.0.1 --port 3080 --no-open
 ```
 
@@ -70,10 +72,10 @@ dsh web --host 127.0.0.1 --port 3080 --no-open
 
 ### 插件配置
 
-需要按 profile 覆盖时，编辑 `$DSH_HOME/profiles/web/cordis.patch.yml` 中的 `dsh-remote-access` 行：
+需要按 profile 覆盖时，编辑 `$DSH_HOME/profiles/web/cordis.patch.yml` 中的 `dsh-dev-plugins` 行：
 
 ```yaml
-- id: dsh-remote-access
+- id: dsh-dev-plugins
   config:
     # false 表示保持上游按权威判定的页面视图。
     loopback: true
@@ -93,7 +95,7 @@ dsh web --host 127.0.0.1 --port 3080 --no-open
 
 未认证的浏览器直接打开裸部署地址时，会看到一个简单的登录表单，而不是纯文本 `401`。表单把令牌提交回相对的 index 路径（`GET ./?token=...`），因此上游的令牌交换、签名 Cookie、反代挂载前缀和跳转到干净 URL 的逻辑全部照旧。令牌错误时表单重新显示并给出错误提示；令牌正确则完成登录。
 
-只有请求权威已经通过部署的 Host/Origin 围栏（loopback、监听绑定字面量，或 `DSH_REMOTE_ACCESS_TRUSTED_HOSTS`/`--trusted-host` 中的权威）时才会返回表单；不受信任的权威仍得到纯文本 `401`，因此 DNS rebinding 或外部主机无法借此收集令牌。令牌仍然出现在查询串里（与打印的 URL 相同），也仍然是唯一凭据；表单没有引入第二套密码存储，也没有绕过认证。若前置代理已有自己的登录页，可设 `loginPage: false` 恢复上游 `401`。
+只有请求权威已经通过部署的 Host/Origin 围栏（loopback、监听绑定字面量，或 `DSH_DEV_PLUGINS_TRUSTED_HOSTS`/`--trusted-host` 中的权威）时才会返回表单；不受信任的权威仍得到纯文本 `401`，因此 DNS rebinding 或外部主机无法借此收集令牌。令牌仍然出现在查询串里（与打印的 URL 相同），也仍然是唯一凭据；表单没有引入第二套密码存储，也没有绕过认证。若前置代理已有自己的登录页，可设 `loginPage: false` 恢复上游 `401`。
 
 ### 反向代理
 
@@ -137,7 +139,7 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 首次打开会扫描全部历史，可能需要几秒；之后的请求复用按会话的折叠缓存，由实时 `session/event` 标脏增量更新。页面上的 **刷新** 按钮会强制全量重扫。用量归属于结算事件所在的本地日期，因此跨午夜的 Turn 计入结算当天。设置 `statsPage: false` 可同时移除侧边栏页面和数据路由。
 
-页面读取 `GET /dsh-remote-access/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
+页面读取 `GET /dsh-dev-plugins/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
 
 ## 工作原理
 
@@ -155,8 +157,8 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 4. **登录表单 —— index 授权。** 插件包装 `connection.authorizeIndex`：`dsh-host-frontend-static` 在返回 index 前调用它。来自受信任权威、未认证的 GET index 请求得到令牌表单（内容为 HTML 的 `401`）；已认证、携带有效令牌、来自不受信任权威或非 GET 的请求都交回上游实现。插件卸载时恢复原方法。若未来 dsh 移除该方法，表单会静默禁用，裸地址恢复上游纯文本 `401`，其余功能不受影响。
 
 
-5. **通知 —— 客户端插件。** `package.json` 声明 `dsh.client`（`platform: web`）并导出 `./client`；`dsh-client-modules` 把浏览器 bundle 发给页面。客户端通过 `sessions` 与 `uiSession` 服务订阅 `ctx.uiSession.sessionStatus`，在本地发 Web Notification；`ctx.remote.$on('api-session/error')` 为下一次空闲转变提供失败详情。宿主侧只注入 `config.notifications` 对应的 `__DSH_REMOTE_ACCESS_NOTIFY__` 开关。
-6. **Token 统计 —— 宿主路由加客户端页面。** 每个会话日志被折叠成 provider usage 结算记录（`assistant/message`/`assistant/attempt` 的 usage 样本，处理替换与重试），并按会话 id 缓存。`session/event` 监听器把会话标脏，下次请求只重读变化部分。宿主在 `ctx.webServer` 上注册精确路由 `/dsh-remote-access/stats/data`，并用 `connection.isTrusted` 与 `connection.browserAuth.isAuthenticated` 校验。浏览器半边注册 `main` 面板与 `sidebar.panellist` 入口；宿主根据 `config.statsPage` 注入 `__DSH_REMOTE_ACCESS_STATS__` 开关。
+5. **通知 —— 客户端插件。** `package.json` 声明 `dsh.client`（`platform: web`）并导出 `./client`；`dsh-client-modules` 把浏览器 bundle 发给页面。客户端通过 `sessions` 与 `uiSession` 服务订阅 `ctx.uiSession.sessionStatus`，在本地发 Web Notification；`ctx.remote.$on('api-session/error')` 为下一次空闲转变提供失败详情。宿主侧只注入 `config.notifications` 对应的 `__DSH_DEV_PLUGINS_NOTIFY__` 开关。
+6. **Token 统计 —— 宿主路由加客户端页面。** 每个会话日志被折叠成 provider usage 结算记录（`assistant/message`/`assistant/attempt` 的 usage 样本，处理替换与重试），并按会话 id 缓存。`session/event` 监听器把会话标脏，下次请求只重读变化部分。宿主在 `ctx.webServer` 上注册精确路由 `/dsh-dev-plugins/stats/data`，并用 `connection.isTrusted` 与 `connection.browserAuth.isAuthenticated` 校验。浏览器半边注册 `main` 面板与 `sidebar.panellist` 入口；宿主根据 `config.statsPage` 注入 `__DSH_DEV_PLUGINS_STATS__` 开关。
 
 ## 安全说明
 
@@ -195,7 +197,7 @@ npm test        # node:test：配置、令牌解析、index 注入、用量折�
 ```sh
 export DSH_HOME=$(mktemp -d)
 dsh plugin --profile web add "$PWD"
-DSH_WEB_TOKEN=dev-token DSH_REMOTE_ACCESS_TRUSTED_HOSTS=dsh.test \
+DSH_WEB_TOKEN=dev-token DSH_DEV_PLUGINS_TRUSTED_HOSTS=dsh.test \
   dsh --profile web --host 127.0.0.1 --port 3199 --no-open
 # 再通过你的代理打开 http://<非 localhost 地址>:3199/?token=dev-token
 ```

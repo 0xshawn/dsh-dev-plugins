@@ -1,9 +1,9 @@
-# dsh-remote-access
+# dsh-dev-plugins
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-Serve the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) Web UI through a **non-localhost authority** — a reverse proxy, SSH tunnel, or LAN address — without patching the installed dsh.
+A growing collection of plugins for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), installed as one bundle. The current release serves the dsh Web UI through a **non-localhost authority** — a reverse proxy, SSH tunnel, or LAN address — without patching the installed dsh, and adds browser notifications plus a workspace token-usage page.
 
 [中文文档](./README.zh-CN.md)
 
@@ -13,7 +13,7 @@ Stock `dsh web` is built for a browser on the same machine. Six things are missi
 
 | Problem | Stock dsh | This plugin |
 |---|---|---|
-| `/api` Host/Origin fence | accepts loopback, the listener's bind literal, and `--trusted-host` only; every RPC answers `403` for a proxy authority | appends `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` authorities to the same list (`--trusted-host` keeps working) |
+| `/api` Host/Origin fence | accepts loopback, the listener's bind literal, and `--trusted-host` only; every RPC answers `403` for a proxy authority | appends `DSH_DEV_PLUGINS_TRUSTED_HOSTS` authorities to the same list (`--trusted-host` keeps working) |
 | Page view (`connection.isLoopback`) | derived from `location.hostname`; a proxied page is treated as non-loopback, so on dsh 0.2.0 settings stay in process-local memory (`settings are unavailable in this browser` on the Models page) and on every version the host-document action is hidden | injects `__DSH_TRANSPORT__ = { ownsHost: true }`, the host-owned transport hook dsh already uses for its desktop shell, so authenticated pages report the loopback view |
 | Launch token | random per process; the only way to find the login URL after a restart is the service log | pins `DSH_WEB_TOKEN` (or plugin config) across restarts |
 | First login | opening the bare deployment URL answers a plain `401`, so the token must come from the printed `?token=` URL | serves an HTML token form on the bare URL (`loginPage`, default on) and feeds the submitted token back into the stock exchange |
@@ -26,19 +26,21 @@ Authentication is unchanged: the browser still has to exchange the launch token 
 
 ```sh
 # from GitHub (public repository, no build step)
-dsh plugin --profile web add git+https://github.com/0xshawn/dsh-remote-access.git
+dsh plugin --profile web add git+https://github.com/0xshawn/dsh-dev-plugins.git
 
 # from a local checkout
-dsh plugin --profile web add /path/to/dsh-remote-access
+dsh plugin --profile web add /path/to/dsh-dev-plugins
 ```
 
 Restart `dsh web` afterwards — dsh loads bundles at boot. Verify the row is active:
 
 ```sh
-dsh --profile web --dump-config | grep -A6 'dsh-remote-access'
+dsh --profile web --dump-config | grep -A6 'dsh-dev-plugins'
 ```
 
-Remove with `dsh plugin --profile web remove dsh-remote-access`; the stock behaviour returns on the next restart.
+Remove with `dsh plugin --profile web remove dsh-dev-plugins`; the stock behaviour returns on the next restart.
+
+> **Renamed in 0.5.0.** The package was `dsh-remote-access` before; the profile row and the environment variable are now `dsh-dev-plugins` and `DSH_DEV_PLUGINS_TRUSTED_HOSTS`. Remove the old row before adding this one, and rename the variable in the service environment.
 
 ### Migrating from a source patch
 
@@ -46,7 +48,7 @@ If a deployment currently patches the installed dsh bundles (fixed launch token 
 
 1. Stop applying the patch in the installer; `npm install -g @deepseek-ai/dsh@<version>` no longer needs a follow-up patch step.
 2. Install this bundle into the `web` profile (above) and restart `dsh web`.
-3. Keep the deployment's `DSH_WEB_TOKEN`; it is read by the same name. Keep `--trusted-host` or move the authorities to `DSH_REMOTE_ACCESS_TRUSTED_HOSTS`.
+3. Keep the deployment's `DSH_WEB_TOKEN`; it is read by the same name. Keep `--trusted-host` or move the authorities to `DSH_DEV_PLUGINS_TRUSTED_HOSTS`.
 4. Confirm the startup line still prints the pinned token: `dsh web: ...?token=<same token>`.
 
 ## Configure
@@ -55,14 +57,14 @@ If a deployment currently patches the installed dsh bundles (fixed launch token 
 
 | Variable | Value | Effect |
 |---|---|---|
-| `DSH_REMOTE_ACCESS_TRUSTED_HOSTS` | comma-separated bare authorities, e.g. `dsh.example.com,dsh.example.com:8443` | appended to `--trusted-host`; a port-less entry matches any port |
+| `DSH_DEV_PLUGINS_TRUSTED_HOSTS` | comma-separated bare authorities, e.g. `dsh.example.com,dsh.example.com:8443` | appended to `--trusted-host`; a port-less entry matches any port |
 | `DSH_WEB_TOKEN` | non-empty launch token | pins the login token; empty/unset keeps the random per-process token |
 
 Both work in systemd `Environment=`/`EnvironmentFile=`, launchd `EnvironmentVariables`, Docker env, or a shell profile. Keep `--trusted-host` if you prefer flags; the expression appends the environment authorities to the invocation list. Note that a patch layer replaces the whole `connection.config`: if another layer (or a later profile patch) overrides `connection`, restate `trustedHosts` there — otherwise the environment authorities are dropped — and restate any other key you still need, such as `cookieMaxAgeDays` or `recovery`.
 
 ```sh
 DSH_WEB_TOKEN="$(cat /etc/dsh/web-token)" \
-DSH_REMOTE_ACCESS_TRUSTED_HOSTS="dsh.example.com" \
+DSH_DEV_PLUGINS_TRUSTED_HOSTS="dsh.example.com" \
 dsh web --host 127.0.0.1 --port 3080 --no-open
 ```
 
@@ -70,10 +72,10 @@ Malformed authorities (a scheme, path, userinfo, or zero-padded port) abort boot
 
 ### Plugin config
 
-Override the `dsh-remote-access` row in the profile patch (`$DSH_HOME/profiles/web/cordis.patch.yml`) for per-profile values:
+Override the `dsh-dev-plugins` row in the profile patch (`$DSH_HOME/profiles/web/cordis.patch.yml`) for per-profile values:
 
 ```yaml
-- id: dsh-remote-access
+- id: dsh-dev-plugins
   config:
     # false keeps the stock per-authority page view.
     loopback: true
@@ -99,7 +101,7 @@ wrong token simply re-renders the form with an error; a valid token logs in.
 
 The form is served only when the request authority already passes the
 deployment's Host/Origin fence (loopback, the bind literal, or a
-`DSH_REMOTE_ACCESS_TRUSTED_HOSTS`/`--trusted-host` authority). An untrusted
+`DSH_DEV_PLUGINS_TRUSTED_HOSTS`/`--trusted-host` authority). An untrusted
 authority keeps the plain `401`, so a DNS-rebinding or foreign host cannot
 collect the token. The token still travels in the query string exactly like the
 printed URL, and it remains the only credential; the form does not introduce a
@@ -193,7 +195,7 @@ attributed to the local day of the event that settled the billed sample, so a
 Turn crossing midnight stays on the day it settled. Set `statsPage: false` to
 remove both the sidebar page and its data route.
 
-The page reads `GET /dsh-remote-access/stats/data?from=<ms>&to=<ms>&tz=<IANA>`
+The page reads `GET /dsh-dev-plugins/stats/data?from=<ms>&to=<ms>&tz=<IANA>`
 (`from`/`to` optional, `refresh=1` forces a rescan). The route is read-only and
 applies the same trusted-authority and launch-token cookie checks as `/api`; it
 returns only token totals, workspace paths, and day keys, never message content.
@@ -220,16 +222,16 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
    `ctx.uiSession.sessionStatus` through the `sessions` and `uiSession`
    services and raises local Web Notifications; `ctx.remote.$on('api-session/error')`
    supplies failure details for the next idle transition. The Host only injects
-   the `__DSH_REMOTE_ACCESS_NOTIFY__` feature flag from `config.notifications`.
+   the `__DSH_DEV_PLUGINS_NOTIFY__` feature flag from `config.notifications`.
 6. **Token statistics — Host route plus client panel.** Each Session log is
    folded into provider usage settlements (`assistant/message`/`assistant/attempt`
    usage samples, replacement and retry aware) and cached per Session id. A
    `session/event` listener marks the Session dirty, so the next request rereads
    only what changed. The Host registers the exact route
-   `/dsh-remote-access/stats/data` on `ctx.webServer` and guards it with
+   `/dsh-dev-plugins/stats/data` on `ctx.webServer` and guards it with
    `connection.isTrusted` and `connection.browserAuth.isAuthenticated`. The
    browser half registers a `main` panel and a `sidebar.panellist` entry; the
-   Host injects `__DSH_REMOTE_ACCESS_STATS__` from `config.statsPage`.
+   Host injects `__DSH_DEV_PLUGINS_STATS__` from `config.statsPage`.
 
 ## Security
 
@@ -267,7 +269,7 @@ End-to-end check on an isolated home (no effect on your real profile):
 ```sh
 export DSH_HOME=$(mktemp -d)
 dsh plugin --profile web add "$PWD"
-DSH_WEB_TOKEN=dev-token DSH_REMOTE_ACCESS_TRUSTED_HOSTS=dsh.test \
+DSH_WEB_TOKEN=dev-token DSH_DEV_PLUGINS_TRUSTED_HOSTS=dsh.test \
   dsh --profile web --host 127.0.0.1 --port 3199 --no-open
 # then open http://<non-localhost>:3199/?token=dev-token through your proxy
 ```

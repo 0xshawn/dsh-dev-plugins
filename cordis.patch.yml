@@ -1,9 +1,9 @@
-# dsh-remote-access bundle patch. Applied after @deepseek-ai/dsh-base and
+# dsh-dev-plugins bundle patch. Applied after @deepseek-ai/dsh-base and
 # @deepseek-ai/dsh-web-app; the profile's own cordis.patch.yml still wins.
 #
 # 1. /api browser-trust fence authorities. The stock dsh-web-app row only keeps
 #    the invocation's --trusted-host list. This layer appends the deployment
-#    authorities from DSH_REMOTE_ACCESS_TRUSTED_HOSTS (comma-separated bare
+#    authorities from DSH_DEV_PLUGINS_TRUSTED_HOSTS (comma-separated bare
 #    `host` or `host:port` values), so a proxy/tunnel deployment can declare its
 #    browser-facing authority in the service environment instead of the command
 #    line. `webRuntime` (0.2.0) already contains the bind-derived LAN literals
@@ -12,10 +12,10 @@
 #    the LAN authorities. `webStartup` (0.2.1) is the fallback.
 - id: connection
   config:
-    trustedHosts: !!js "((ctx.get('webRuntime') ?? ctx.get('webStartup'))?.trustedHosts ?? []).concat((process.env.DSH_REMOTE_ACCESS_TRUSTED_HOSTS ?? '').split(',').map((value) => value.trim()).filter((value) => value.length > 0))"
+    trustedHosts: !!js "((ctx.get('webRuntime') ?? ctx.get('webStartup'))?.trustedHosts ?? []).concat((process.env.DSH_DEV_PLUGINS_TRUSTED_HOSTS ?? '').split(',').map((value) => value.trim()).filter((value) => value.length > 0))"
 
 # 2. Host plugin: loopback page parity plus a pinned launch token. Its module
 #    name resolves from the profile's node_modules like every out-of-tree row.
 - insert:
-    - id: dsh-remote-access
-      name: dsh-remote-access
+    - id: dsh-dev-plugins
+      name: dsh-dev-plugins
