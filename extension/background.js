@@ -38,6 +38,12 @@ const STORAGE_PORT = 'port'
  * deployment-specific token instead.
  */
 const DEFAULT_TOKEN = 'dsh-dev-plugins-browser-bridge-v1'
+/**
+ * Shape of the randomly generated pairing token that 0.7.0/0.7.1 wrote into
+ * `chrome.storage`. It no longer matches the built-in token, so it is dropped
+ * once during the upgrade instead of looping on a token mismatch.
+ */
+const LEGACY_TOKEN_PATTERN = /^[0-9a-f]{64}$/u
 /** WebSocket readyState values. */
 const SOCKET_CONNECTING = 0
 const SOCKET_OPEN = 1
@@ -554,7 +560,15 @@ async function loadSettings() {
   try {
     const stored = await chrome.storage.local.get([STORAGE_TOKEN, STORAGE_PORT])
     if (stored !== null && typeof stored === 'object') {
-      const storedToken = typeof stored.token === 'string' ? stored.token.trim() : ''
+      let storedToken = typeof stored.token === 'string' ? stored.token.trim() : ''
+      if (storedToken !== '' && LEGACY_TOKEN_PATTERN.test(storedToken)) {
+        storedToken = ''
+        try {
+          await chrome.storage.local.remove?.(STORAGE_TOKEN)
+        } catch {
+          /* the next load retries the cleanup */
+        }
+      }
       state.token = storedToken !== '' ? storedToken : DEFAULT_TOKEN
       if (stored.port !== undefined && stored.port !== null) state.port = normalizePort(stored.port)
     }
@@ -569,7 +583,9 @@ async function saveSettings(token, port) {
   const override = typeof token === 'string' ? token.trim() : ''
   state.token = override !== '' ? override : DEFAULT_TOKEN
   state.port = normalizePort(port)
-  await chrome.storage.local.set({ [STORAGE_TOKEN]: state.token, [STORAGE_PORT]: state.port })
+  // Blank means "use the built-in token": store the empty override rather than
+  // the literal, so a future default change still applies.
+  await chrome.storage.local.set({ [STORAGE_TOKEN]: override, [STORAGE_PORT]: state.port })
   settingsLoaded = true
   return { token: state.token, port: state.port }
 }

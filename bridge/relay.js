@@ -150,7 +150,7 @@ export class Relay {
     const timeoutMs = options.timeoutMs ?? this.callTimeoutMs
     return new Promise((resolve, reject) => {
       if (!this.connected) {
-        reject(bridgeDisconnected(`No Chrome extension is connected; open the extension popup and pair it with this bridge to call ${method}.`))
+        reject(bridgeDisconnected(`No Chrome extension is connected; load the dsh browser bridge extension and let it connect to this bridge to call ${method}.`))
         return
       }
       const id = this.nextId

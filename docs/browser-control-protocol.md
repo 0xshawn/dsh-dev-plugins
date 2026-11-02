@@ -128,7 +128,7 @@ call fails with the MCP "unknown tool" error.
 |---|---|---|
 | `DSH_BROWSER_BRIDGE` | `1` | `0` makes the bridge exit immediately (no tools appear) |
 | `DSH_BROWSER_BRIDGE_PORT` | `8790` | WebSocket port on `127.0.0.1` |
-| `DSH_BROWSER_BRIDGE_TOKEN` | built-in fixed value | overrides the shared token on both sides |
+| `DSH_BROWSER_BRIDGE_TOKEN` | built-in fixed value | bridge-side token override; match it in the popup's optional override |
 | `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` or `~/.dsh/browser-bridge` | audit directory |
 | `DSH_BROWSER_BRIDGE_EXTENSION_ID` | empty | comma-separated allowed extension ids |
 | `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` | `~/Downloads,~/Desktop` | allowed upload roots |

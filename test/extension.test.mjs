@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, test } from 'node:test'
 
+import { BRIDGE_DEFAULT_TOKEN } from '../bridge/config.js'
+
 const BACKGROUND_URL = new URL('../extension/background.js', import.meta.url)
 const BACKGROUND_SOURCE = readFileSync(BACKGROUND_URL, 'utf8')
 
@@ -82,6 +84,10 @@ function createChrome() {
         set: async (items) => {
           calls.push(['storage.set', { ...items }])
           for (const [key, value] of Object.entries(items)) storageData.set(key, value)
+        },
+        remove: async (keys) => {
+          const list = Array.isArray(keys) ? keys : [keys]
+          for (const key of list) storageData.delete(key)
         },
       },
     },
@@ -215,16 +221,19 @@ test('the built-in token connects without any pairing step', async () => {
   assert.equal(seam.getState().usesDefaultToken, true)
   assert.equal(seam.getState().token, '')
 
+  assert.equal(seam.DEFAULT_TOKEN, BRIDGE_DEFAULT_TOKEN)
   const loaded = await seam.loadSettings()
   assert.equal(loaded, undefined)
   assert.equal(seam.connect(), true)
   const ws = FakeWebSocket.instances[0]
   assert.equal(ws.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
 
-  // Saving a blank override keeps the built-in token.
+  // Saving a blank override keeps the built-in token and stores an empty
+  // override, so a future built-in-token change would still apply.
   ws.serverClose(1006, 'network')
   await seam.saveSettings('   ', 8790)
   assert.equal(seam.getState().usesDefaultToken, true)
+  assert.equal(chrome.storageData.get('token'), '')
   await seam.connect()
   const next = FakeWebSocket.instances.at(-1)
   assert.equal(next.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
@@ -232,6 +241,19 @@ test('the built-in token connects without any pairing step', async () => {
   // A stored override still wins.
   await seam.saveSettings('custom-token', 8790)
   assert.equal(seam.getState().usesDefaultToken, false)
+})
+
+test('a legacy random pairing token is cleared during the upgrade', async () => {
+  seam.setWebSocketImpl(FakeWebSocket)
+  chrome.storageData.set('token', 'a'.repeat(64))
+  chrome.storageData.set('port', 8790)
+  seam.resetState()
+  await seam.loadSettings()
+  assert.equal(seam.getState().usesDefaultToken, true)
+  assert.equal(chrome.storageData.has('token'), false)
+  assert.equal(seam.connect(), true)
+  const ws = FakeWebSocket.instances.at(-1)
+  assert.equal(ws.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
 })
 
 test('parseServerUrl encodes the token and uses the port', () => {

@@ -10,7 +10,9 @@ Built-in bridge token: the Chrome extension needs no pairing step.
   token file to read or paste.
 - `DSH_BROWSER_BRIDGE_TOKEN` still overrides the token on the bridge side; the
   popup gained an optional **Token override** field for matching private
-  deployments. The token file in `$DSH_HOME/browser-bridge` is gone.
+  deployments. The token file in `$DSH_HOME/browser-bridge` is no longer
+  created or read, and a token stored by 0.7.0/0.7.1 is cleared automatically
+  on the next extension start.
 - The listener stays loopback-only and still validates
   `Origin: chrome-extension://<id>`; `DSH_BROWSER_BRIDGE_EXTENSION_ID` can pin
   the accepted extension id.

@@ -238,7 +238,8 @@ connects with a built-in token — no pairing step. For the extension:
 2. Restart `dsh web` so the bundle's `mcp-browser` row spawns the bridge. The
    extension reconnects by itself; the popup shows **Connected** and the
    attached tabs. The popup's optional **Token override** field is only needed
-   when the bridge sets `DSH_BROWSER_BRIDGE_TOKEN`.
+   when the bridge sets `DSH_BROWSER_BRIDGE_TOKEN`. Coming from 0.7.0/0.7.1:
+   the old random token in the extension is cleared automatically.
 
 Requires Chrome 120+ on the machine that runs `dsh web`; the debugger
 attachment shows Chrome's "being controlled by automated test software" banner
