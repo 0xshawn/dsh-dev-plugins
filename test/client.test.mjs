@@ -365,6 +365,60 @@ test('announce respects the browser permission', async () => {
   }
 })
 
+test('a notification click focuses the tab and opens its session', async () => {
+  const client = await loadClientBundle()
+  FakeNotification.reset('granted')
+  const browser = installBrowser({ visibilityState: 'hidden' })
+  const opened = []
+  let focused = false
+  const previousFocus = globalThis.focus
+  globalThis.focus = () => {
+    focused = true
+  }
+  try {
+    client.__test.installSessionOpener({
+      get: (name) => (name === 'uiWorkspace' ? { openSession: (sessionId) => opened.push(sessionId) } : undefined),
+    })
+    const notification = client.__test.announce({
+      title: 'Task finished',
+      body: 'Done',
+      tag: 's1:complete',
+      sessionId: 's1',
+      mainSession: false,
+    })
+    assert.ok(notification)
+    notification.onclick()
+    assert.equal(focused, true)
+    assert.deepEqual(opened, ['s1'])
+    assert.equal(notification.closed, true)
+  } finally {
+    if (previousFocus === undefined) delete globalThis.focus
+    else globalThis.focus = previousFocus
+    browser.restore()
+  }
+})
+
+test('a notification click still closes when workspace navigation is unavailable', async () => {
+  const client = await loadClientBundle()
+  FakeNotification.reset('granted')
+  client.__test.installSessionOpener({ get: () => undefined })
+  const browser = installBrowser({ visibilityState: 'hidden' })
+  try {
+    const notification = client.__test.announce({
+      title: 'Task finished',
+      body: 'Done',
+      tag: 's1:complete',
+      sessionId: 's1',
+      mainSession: false,
+    })
+    assert.ok(notification)
+    notification.onclick()
+    assert.equal(notification.closed, true)
+  } finally {
+    browser.restore()
+  }
+})
+
 test('apply subscribes to sessionStatus and notifies after the idle settle delay', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const client = await loadClientBundle()

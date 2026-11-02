@@ -163,7 +163,8 @@ failures that immediately retry from producing an invalid notification.
 Notifications appear only while the page is hidden or the window is unfocused,
 and only after the browser grants notification permission. The page asks once on
 the first click or keypress; grant it for the deployment origin. Clicking a
-notification brings the dsh window back to the foreground. Subagent and removed
+notification brings the dsh window back to the foreground and opens the notified
+Session in this page. Subagent and removed
 sessions are skipped, and an unknown or not-yet-listed Session is never guessed
 into a notification. Set `notifications: false` in the plugin config to turn the
 notification half off (the composer Enter rewrite stays active).
