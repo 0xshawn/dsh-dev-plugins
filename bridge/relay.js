@@ -81,7 +81,7 @@ export class Relay {
     this.extensionIds = Array.isArray(config.extensionIds) ? config.extensionIds : []
     this.port = config.port
     this.host = '127.0.0.1'
-    this.bridgeVersion = options.bridgeVersion ?? '0.8.0'
+    this.bridgeVersion = options.bridgeVersion ?? '0.8.1'
     this.helloTimeoutMs = options.helloTimeoutMs ?? HELLO_TIMEOUT_MS
     this.callTimeoutMs = options.callTimeoutMs ?? CALL_TIMEOUT_MS
     this.keepaliveMs = options.keepaliveMs ?? KEEPALIVE_MS

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.1 — 2026-11-02
+
+Notification click opens the notified Session.
+
+- Clicking a browser notification now calls `ctx.uiWorkspace.openSession(id)`
+  after focusing the window, so the click lands on the Session that finished or
+  needs input instead of leaving the tab on the previously viewed Session.
+- The navigation capability is resolved lazily through `uiWorkspace`; when a dsh
+  version does not expose it, the click still focuses the window and closes the
+  notification.
+
 ## 0.8.0 — 2026-11-02
 
 Feature switches: a Settings page for the whole bundle.
