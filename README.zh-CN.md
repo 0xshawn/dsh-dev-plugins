@@ -154,7 +154,7 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 **安装。** bridge 随 bundle 装好即可；扩展使用内置固定 token，无需配对。扩展：
 
 1. 打开 `chrome://extensions`，启用开发者模式，选 **加载已解压的扩展程序**，选中本包的 `extension/` 目录（通过 profile 安装时为 `~/.dsh/profiles/web/node_modules/dsh-dev-plugins/extension`）。Chrome 会请求 `debugger`、`tabs`、`storage`、`alarms`、`downloads` 权限。
-2. 重启 `dsh web`，让 bundle 的 `mcp-browser` 行拉起 bridge。扩展会自动重连；弹窗显示 **Connected** 与已 attach 的 tab 即成功。只有 bridge 设置 `DSH_BROWSER_BRIDGE_TOKEN` 时才需要在弹窗的“Token override”里填同样的值。从 0.7.0/0.7.1 升级时，扩展里旧的随机 token 会自动清除。
+2. 重启 `dsh web`，让 bundle 的 `mcp-browser` 行拉起 bridge。扩展会自动重连；弹窗显示 **Connected** 与已 attach 的 tab 即成功。只有 bridge 设置 `DSH_BROWSER_BRIDGE_TOKEN` 时才需要在弹窗的“Token override”里填同样的值。从 0.7.0/0.7.1 升级时，扩展里旧的随机 64 位十六进制 token 会自动清除一次；自定义的十六进制 override 需要重新填一次。
 
 需要运行 `dsh web` 的机器上有 Chrome 120+；attach 期间 Chrome 会显示“正在由自动化测试软件控制”提示条。bridge 只监听 `127.0.0.1`。
 

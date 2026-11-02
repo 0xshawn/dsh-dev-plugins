@@ -146,7 +146,7 @@ reduced to `{ length }`.
 ## Failure and reconnect behaviour
 
 - No extension connected: tool calls fail with `bridge_disconnected` and a
-  message telling the operator to open the popup and pair.
+  message telling the operator to load the extension and let it connect.
 - Extension disconnects: the bridge keeps serving MCP but fails browser calls;
   the extension reconnects with exponential backoff (0.5 s → 10 s) and resends
   `hello`.

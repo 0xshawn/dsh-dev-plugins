@@ -32,6 +32,8 @@ const DEBUGGER_PROTOCOL_VERSION = '1.3'
 /** chrome.storage.local keys. */
 const STORAGE_TOKEN = 'token'
 const STORAGE_PORT = 'port'
+/** Set once when the pre-0.7.2 random token has been dropped. */
+const STORAGE_TOKEN_MIGRATED = 'tokenMigrated'
 /**
  * Built-in pairing token shared with the bridge. It lets the extension connect
  * with no manual pairing step; populate the popup's optional override to use a
@@ -558,15 +560,25 @@ function nextPingId() {
 /** Read `{ token, port }` from chrome.storage.local into the live state. */
 async function loadSettings() {
   try {
-    const stored = await chrome.storage.local.get([STORAGE_TOKEN, STORAGE_PORT])
+    const stored = await chrome.storage.local.get([STORAGE_TOKEN, STORAGE_PORT, STORAGE_TOKEN_MIGRATED])
     if (stored !== null && typeof stored === 'object') {
       let storedToken = typeof stored.token === 'string' ? stored.token.trim() : ''
-      if (storedToken !== '' && LEGACY_TOKEN_PATTERN.test(storedToken)) {
-        storedToken = ''
+      if (stored.tokenMigrated !== true) {
+        // One-shot upgrade cleanup: 0.7.0/0.7.1 stored a random 64-hex token
+        // that cannot match the built-in one. Clear it once, remember that the
+        // migration ran, and never touch an override again.
+        if (storedToken !== '' && LEGACY_TOKEN_PATTERN.test(storedToken)) {
+          storedToken = ''
+          try {
+            await chrome.storage.local.remove(STORAGE_TOKEN)
+          } catch {
+            /* keep going; the migration flag is what prevents a loop */
+          }
+        }
         try {
-          await chrome.storage.local.remove?.(STORAGE_TOKEN)
+          await chrome.storage.local.set({ [STORAGE_TOKEN_MIGRATED]: true })
         } catch {
-          /* the next load retries the cleanup */
+          /* a missing storage write only retries the harmless cleanup */
         }
       }
       state.token = storedToken !== '' ? storedToken : DEFAULT_TOKEN

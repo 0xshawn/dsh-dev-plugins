@@ -243,7 +243,7 @@ test('the built-in token connects without any pairing step', async () => {
   assert.equal(seam.getState().usesDefaultToken, false)
 })
 
-test('a legacy random pairing token is cleared during the upgrade', async () => {
+test('a legacy random pairing token is cleared once during the upgrade', async () => {
   seam.setWebSocketImpl(FakeWebSocket)
   chrome.storageData.set('token', 'a'.repeat(64))
   chrome.storageData.set('port', 8790)
@@ -251,9 +251,21 @@ test('a legacy random pairing token is cleared during the upgrade', async () => 
   await seam.loadSettings()
   assert.equal(seam.getState().usesDefaultToken, true)
   assert.equal(chrome.storageData.has('token'), false)
+  assert.equal(chrome.storageData.get('tokenMigrated'), true)
   assert.equal(seam.connect(), true)
   const ws = FakeWebSocket.instances.at(-1)
   assert.equal(ws.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
+
+  // After the one-shot migration a hex-shaped override is a legitimate token
+  // and must survive the next load.
+  await seam.saveSettings('b'.repeat(64), 8790)
+  seam.resetState()
+  await seam.loadSettings()
+  assert.equal(seam.getState().usesDefaultToken, false)
+  assert.equal(chrome.storageData.get('token'), 'b'.repeat(64))
+  assert.equal(seam.connect(), true)
+  const overrideSocket = FakeWebSocket.instances.at(-1)
+  assert.equal(overrideSocket.url.endsWith(`?token=${'b'.repeat(64)}`), true)
 })
 
 test('parseServerUrl encodes the token and uses the port', () => {
@@ -543,7 +555,7 @@ test('popup get-state/save-settings go through chrome.storage', async () => {
 
   const saved = await callPopup({ type: 'save-settings', token: 'tok-9', port: 8890 })
   assert.equal(saved.ok, true)
-  const storageSet = chrome.calls.find((call) => call[0] === 'storage.set')
+  const storageSet = chrome.calls.find((call) => call[0] === 'storage.set' && Object.hasOwn(call[1], 'token'))
   assert.deepEqual(storageSet[1], { token: 'tok-9', port: 8890 })
   assert.equal(chrome.storageData.get('token'), 'tok-9')
   assert.equal(chrome.storageData.get('port'), 8890)

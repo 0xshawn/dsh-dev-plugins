@@ -239,7 +239,8 @@ connects with a built-in token — no pairing step. For the extension:
    extension reconnects by itself; the popup shows **Connected** and the
    attached tabs. The popup's optional **Token override** field is only needed
    when the bridge sets `DSH_BROWSER_BRIDGE_TOKEN`. Coming from 0.7.0/0.7.1:
-   the old random token in the extension is cleared automatically.
+   the old random 64-hex token is cleared once; a custom hex-shaped override
+   has to be re-entered once.
 
 Requires Chrome 120+ on the machine that runs `dsh web`; the debugger
 attachment shows Chrome's "being controlled by automated test software" banner
