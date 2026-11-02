@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, before, test } from 'node:test'
 
 import {
   apply,
@@ -29,6 +29,20 @@ function featureFlags(config) {
   }
   return flags
 }
+
+/** Every apply() writes the derived bridge state; keep it inside a temp home. */
+let testHome
+let previousDshHome
+before(async () => {
+  previousDshHome = process.env.DSH_HOME
+  testHome = await mkdtemp(join(tmpdir(), 'dsh-dev-plugins-tests-'))
+  process.env.DSH_HOME = testHome
+})
+after(async () => {
+  if (previousDshHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousDshHome
+  await rm(testHome, { recursive: true, force: true })
+})
 
 /** Minimal Cordis context: one event emitter plus a `get` service lookup. */
 function fakeContext(connection) {
@@ -57,7 +71,14 @@ test('plugin metadata follows the Cordis plugin shape', () => {
 })
 
 test('Config defaults keep the patch behaviour', () => {
-  assert.deepEqual(featureFlags(Config({})), {
+  const defaults = Config({})
+  // Settings pages are served only for volatile fields: the Host filters the
+  // entry out of the describe form otherwise, so pin the editable shape here.
+  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl']) {
+    assert.equal(typeof defaults[key]?.get, 'function', `${key} must be volatile`)
+  }
+  assert.equal(typeof defaults.launchToken, 'string', 'launchToken stays out of the settings form')
+  assert.deepEqual(featureFlags(defaults), {
     loopback: true,
     loginPage: true,
     notifications: true,

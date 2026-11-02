@@ -130,7 +130,10 @@ export async function readOrCreateToken(home) {
  *
  * The plugin config stays authoritative; this file only carries the
  * `browserControl` switch across the process boundary, because the MCP client
- * spawns the bridge at boot and cannot reconfigure a running child.
+ * spawns the bridge at boot and cannot reconfigure a running child. The
+ * settings page rewrites the file as soon as the switch changes; hand-editing
+ * the profile config while dsh web is stopped can race this boot-time read, so
+ * prefer the settings page for that switch.
  * @param env - environment bag, normally `process.env`.
  * @param options - `home` overrides the DSH home root (`$DSH_HOME`), `homedir`
  *   overrides the user home used for the `.dsh` fallback.
