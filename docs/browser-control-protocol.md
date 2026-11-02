@@ -23,11 +23,17 @@ dsh web ── stdio MCP ──▶ bridge/index.js ── WebSocket (127.0.0.1) 
 
 ## Pairing and authentication
 
-- Token: `DSH_BROWSER_BRIDGE_TOKEN` when set, otherwise the bridge generates one
-  and stores it at `$DSH_BROWSER_BRIDGE_HOME/token` (default
-  `$DSH_HOME/browser-bridge/token`, fallback `~/.dsh/browser-bridge/token`,
-  file mode `0600`). Generated once and reused across restarts.
-- The extension popup takes the token once and stores it in `chrome.storage`.
+- The bridge and the extension share a **built-in token**
+  (`dsh-dev-plugins-browser-bridge-v1`), so the extension connects
+  automatically as soon as it is loaded — no copy/paste pairing step. The token
+  is a convenience default, not a secret: the listener binds `127.0.0.1` only
+  and the `Origin` check restricts the peer to a Chrome extension origin.
+- `DSH_BROWSER_BRIDGE_TOKEN` (any non-empty value) replaces the built-in token
+  on the bridge side; the popup's optional **Token override** field stores the
+  matching value in `chrome.storage` when a deployment wants a private token.
+  Leave the field blank (default) to use the built-in token.
+- No token file is created or read. `DSH_BROWSER_BRIDGE_HOME` only holds the
+  audit log.
 - Connection URL: `ws://127.0.0.1:<port>/extension?token=<token>`.
 - The bridge compares the token in constant time and checks the `Origin` header
   (`chrome-extension://<id>`). When `DSH_BROWSER_BRIDGE_EXTENSION_ID` lists one
@@ -122,8 +128,8 @@ call fails with the MCP "unknown tool" error.
 |---|---|---|
 | `DSH_BROWSER_BRIDGE` | `1` | `0` makes the bridge exit immediately (no tools appear) |
 | `DSH_BROWSER_BRIDGE_PORT` | `8790` | WebSocket port on `127.0.0.1` |
-| `DSH_BROWSER_BRIDGE_TOKEN` | generated file | shared pairing token |
-| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` or `~/.dsh/browser-bridge` | token + audit directory |
+| `DSH_BROWSER_BRIDGE_TOKEN` | built-in fixed value | bridge-side token override; match it in the popup's optional override |
+| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` or `~/.dsh/browser-bridge` | audit directory |
 | `DSH_BROWSER_BRIDGE_EXTENSION_ID` | empty | comma-separated allowed extension ids |
 | `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` | `~/Downloads,~/Desktop` | allowed upload roots |
 | `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` | `~/Downloads/dsh-browser` | download destination |
@@ -140,7 +146,7 @@ reduced to `{ length }`.
 ## Failure and reconnect behaviour
 
 - No extension connected: tool calls fail with `bridge_disconnected` and a
-  message telling the operator to open the popup and pair.
+  message telling the operator to load the extension and let it connect.
 - Extension disconnects: the bridge keeps serving MCP but fails browser calls;
   the extension reconnects with exponential backoff (0.5 s → 10 s) and resends
   `hello`.

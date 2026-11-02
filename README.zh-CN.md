@@ -163,11 +163,10 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 控制是全自动的：bridge 按需 attach 目标 tab，也可以自由切 tab，所以该 Chrome 里打开的任何页面都可能被读取或操作。只在你接受这个范围时安装扩展。dsh 自身的审批仍然生效（每条工具调用可能询问一次；dsh 没有 allow-always 规则），请配合你认可的权限预设使用。
 
-**安装。** bridge 随 bundle 装好即可。扩展：
+**安装。** bridge 随 bundle 装好即可；扩展使用内置固定 token，无需配对。扩展：
 
-1. 先启动一次 `dsh web`，让 bridge 生成 `$DSH_HOME/browser-bridge/token`（默认 `~/.dsh/browser-bridge/token`，权限 `0600`）。
-2. 打开 `chrome://extensions`，启用开发者模式，选 **加载已解压的扩展程序**，选中本包的 `extension/` 目录（通过 profile 安装时为 `~/.dsh/profiles/web/node_modules/dsh-dev-plugins/extension`）。Chrome 会请求 `debugger`、`tabs`、`storage`、`alarms`、`downloads` 权限。
-3. 打开扩展弹窗，粘贴 token，先 **保存** 再 **连接**。状态点变绿并列出已 attach 的 tab 即成功。
+1. 打开 `chrome://extensions`，启用开发者模式，选 **加载已解压的扩展程序**，选中本包的 `extension/` 目录（通过 profile 安装时为 `~/.dsh/profiles/web/node_modules/dsh-dev-plugins/extension`）。Chrome 会请求 `debugger`、`tabs`、`storage`、`alarms`、`downloads` 权限。
+2. 重启 `dsh web`，让 bundle 的 `mcp-browser` 行拉起 bridge。扩展会自动重连；弹窗显示 **Connected** 与已 attach 的 tab 即成功。只有 bridge 设置 `DSH_BROWSER_BRIDGE_TOKEN` 时才需要在弹窗的“Token override”里填同样的值。从 0.7.0/0.7.1 升级时，扩展里旧的随机 64 位十六进制 token 会自动清除一次；自定义的十六进制 override 需要重新填一次。
 
 需要运行 `dsh web` 的机器上有 Chrome 120+；attach 期间 Chrome 会显示“正在由自动化测试软件控制”提示条。bridge 只监听 `127.0.0.1`。
 
@@ -194,14 +193,14 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 交互类工具优先用 `ref`，回退 CSS `selector`；`evaluate` 是一切兜底。`ref` 在下一次 `observe`、页面导航或切 tab 后失效，过期会返回提示让模型重新 observe。
 
-**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、配对 token、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置；截图只作为 image 内容块返回、不落盘；网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。设置页的 **浏览器控制** 开关通过插件配置表达同样意图，bridge 在启动时读取，因此修改后要重启 `dsh web`。
+**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、共享 token（默认内置固定值，可覆盖）、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧，建议其他本机扩展不可信时启用）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置；截图只作为 image 内容块返回、不落盘；网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。设置页的 **浏览器控制** 开关通过插件配置表达同样意图，bridge 在启动时读取，因此修改后要重启 `dsh web`。
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
 | `DSH_BROWSER_BRIDGE` | `1` | `0` 关闭 bridge 与全部浏览器工具（设置页开关重启后等效） |
 | `DSH_BROWSER_BRIDGE_PORT` | `8790` | 本地 WebSocket 端口 |
-| `DSH_BROWSER_BRIDGE_TOKEN` | 自动生成文件 | 配对 token 覆盖 |
-| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | token 与审计目录 |
+| `DSH_BROWSER_BRIDGE_TOKEN` | 内置固定值 | 私有部署的 token 覆盖 |
+| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | 审计目录 |
 | `DSH_BROWSER_BRIDGE_EXTENSION_ID` | 空 | 允许的扩展 ID（逗号分隔） |
 | `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` | `~/Downloads,~/Desktop` | 上传允许根目录 |
 | `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` | `~/Downloads/dsh-browser` | bridge 侧下载目录 |

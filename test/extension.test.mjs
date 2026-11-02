@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, test } from 'node:test'
 
+import { BRIDGE_DEFAULT_TOKEN } from '../bridge/config.js'
+
 const BACKGROUND_URL = new URL('../extension/background.js', import.meta.url)
 const BACKGROUND_SOURCE = readFileSync(BACKGROUND_URL, 'utf8')
 
@@ -25,7 +27,7 @@ function createChrome() {
     listeners,
     runtime: {
       id: 'test-extension-id',
-      getManifest: () => ({ version: '0.7.0' }),
+      getManifest: () => ({ version: '0.7.2' }),
       onMessage: { addListener: (listener) => listeners.onMessage.push(listener) },
       onInstalled: { addListener: (listener) => listeners.onInstalled.push(listener) },
       onStartup: { addListener: (listener) => listeners.onStartup.push(listener) },
@@ -82,6 +84,10 @@ function createChrome() {
         set: async (items) => {
           calls.push(['storage.set', { ...items }])
           for (const [key, value] of Object.entries(items)) storageData.set(key, value)
+        },
+        remove: async (keys) => {
+          const list = Array.isArray(keys) ? keys : [keys]
+          for (const key of list) storageData.delete(key)
         },
       },
     },
@@ -209,6 +215,82 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
+test('the built-in token connects without any pairing step', async () => {
+  seam.setWebSocketImpl(FakeWebSocket)
+  seam.resetState()
+  assert.equal(seam.getState().usesDefaultToken, true)
+  assert.equal(seam.getState().token, '')
+
+  assert.equal(seam.DEFAULT_TOKEN, BRIDGE_DEFAULT_TOKEN)
+  const loaded = await seam.loadSettings()
+  assert.equal(loaded, undefined)
+  assert.equal(seam.connect(), true)
+  const ws = FakeWebSocket.instances[0]
+  assert.equal(ws.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
+
+  // Saving a blank override keeps the built-in token and stores an empty
+  // override, so a future built-in-token change would still apply.
+  ws.serverClose(1006, 'network')
+  await seam.saveSettings('   ', 8790)
+  assert.equal(seam.getState().usesDefaultToken, true)
+  assert.equal(chrome.storageData.get('token'), '')
+  await seam.connect()
+  const next = FakeWebSocket.instances.at(-1)
+  assert.equal(next.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
+
+  // A stored override still wins.
+  await seam.saveSettings('custom-token', 8790)
+  assert.equal(seam.getState().usesDefaultToken, false)
+})
+
+test('a legacy random pairing token is cleared once during the upgrade', async () => {
+  seam.setWebSocketImpl(FakeWebSocket)
+  chrome.storageData.set('token', 'a'.repeat(64))
+  chrome.storageData.set('port', 8790)
+  seam.resetState()
+  await seam.loadSettings()
+  assert.equal(seam.getState().usesDefaultToken, true)
+  assert.equal(chrome.storageData.has('token'), false)
+  assert.equal(chrome.storageData.get('tokenMigrated'), true)
+  assert.equal(seam.connect(), true)
+  const ws = FakeWebSocket.instances.at(-1)
+  assert.equal(ws.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
+
+  // After the one-shot migration a hex-shaped override is a legitimate token
+  // and must survive the next load.
+  await seam.saveSettings('b'.repeat(64), 8790)
+  seam.resetState()
+  await seam.loadSettings()
+  assert.equal(seam.getState().usesDefaultToken, false)
+  assert.equal(chrome.storageData.get('token'), 'b'.repeat(64))
+  assert.equal(seam.connect(), true)
+  const overrideSocket = FakeWebSocket.instances.at(-1)
+  assert.equal(overrideSocket.url.endsWith(`?token=${'b'.repeat(64)}`), true)
+})
+
+test('a failed legacy cleanup retries instead of adopting the stale token', async () => {
+  const originalRemove = chrome.storage.local.remove
+  chrome.storageData.set('token', 'c'.repeat(64))
+  chrome.storageData.set('port', 8790)
+  chrome.storage.local.remove = async () => {
+    throw new Error('storage unavailable')
+  }
+  try {
+    seam.resetState()
+    await seam.loadSettings()
+    assert.equal(seam.getState().usesDefaultToken, true)
+    assert.equal(chrome.storageData.get('tokenMigrated'), undefined)
+    assert.equal(chrome.storageData.get('token'), 'c'.repeat(64))
+  } finally {
+    chrome.storage.local.remove = originalRemove
+  }
+  // The retry succeeds once storage works again.
+  seam.resetState()
+  await seam.loadSettings()
+  assert.equal(chrome.storageData.has('token'), false)
+  assert.equal(chrome.storageData.get('tokenMigrated'), true)
+})
+
 test('parseServerUrl encodes the token and uses the port', () => {
   const url = seam.parseServerUrl(8791, 'a b&c')
   assert.equal(url, 'ws://127.0.0.1:8791/extension?token=a%20b%26c')
@@ -248,7 +330,7 @@ test('parseChord and nextState cover the exposed constant maps', () => {
   assert.deepEqual(seam.CHORD_MODIFIERS, { alt: 1, ctrl: 2, meta: 4, shift: 8 })
   assert.equal(seam.ERROR_CODES.attachFailed, 'attach_failed')
 
-  const base = { token: '', port: seam.DEFAULT_PORT, connected: false, attached: new Map(), lastError: null }
+  const base = { token: seam.DEFAULT_TOKEN, port: seam.DEFAULT_PORT, connected: false, attached: new Map(), lastError: null }
   const welcome = seam.nextState(base, { type: 'welcome' })
   assert.equal(welcome.connected, true)
   assert.equal(welcome.lastError, null)
@@ -439,11 +521,11 @@ test('hello is sent with protocol 1 and the extension id after open', async () =
     type: 'hello',
     protocol: 1,
     extensionId: 'test-extension-id',
-    version: '0.7.0',
+    version: '0.7.2',
   })
   assert.equal(seam.getState().connected, false)
 
-  ws.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.0' })
+  ws.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.2' })
   assert.equal(seam.getState().connected, true)
   assert.equal(seam.getState().lastError, null)
 
@@ -455,7 +537,7 @@ test('hello is sent with protocol 1 and the extension id after open', async () =
   const next = FakeWebSocket.instances.at(-1)
   assert.notEqual(next, ws)
   next.open()
-  next.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.0' })
+  next.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.2' })
   assert.equal(seam.getReconnectAttempt(), 0)
 })
 
@@ -496,7 +578,7 @@ test('popup get-state/save-settings go through chrome.storage', async () => {
 
   const saved = await callPopup({ type: 'save-settings', token: 'tok-9', port: 8890 })
   assert.equal(saved.ok, true)
-  const storageSet = chrome.calls.find((call) => call[0] === 'storage.set')
+  const storageSet = chrome.calls.find((call) => call[0] === 'storage.set' && Object.hasOwn(call[1], 'token'))
   assert.deepEqual(storageSet[1], { token: 'tok-9', port: 8890 })
   assert.equal(chrome.storageData.get('token'), 'tok-9')
   assert.equal(chrome.storageData.get('port'), 8890)

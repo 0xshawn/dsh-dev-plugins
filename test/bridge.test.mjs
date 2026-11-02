@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ import { WebSocket } from 'ws'
 
 import { auditToolCall, buildAuditLine } from '../bridge/audit.js'
 import { ChromeSession } from '../bridge/chrome.js'
-import { loadConfig, parseConfig, readFeatureState, readOrCreateToken } from '../bridge/config.js'
+import { BRIDGE_DEFAULT_TOKEN, loadConfig, parseConfig, readFeatureState } from '../bridge/config.js'
 import { stripSecretValues } from '../bridge/dom.js'
 import { saveDownload } from '../bridge/download.js'
 import { createNetworkLog, NETWORK_BODY_LIMIT, readNetworkBody, truncateBody } from '../bridge/network.js'
@@ -292,9 +293,8 @@ test('parseConfig applies defaults, environment overrides, and the disabled-tool
   const defaults = parseConfig({}, { home: '/tmp/dsh-home', homedir: '/home/tester' })
   assert.equal(defaults.enabled, true)
   assert.equal(defaults.port, 8790)
-  assert.equal(defaults.token, null)
+  assert.equal(defaults.token, BRIDGE_DEFAULT_TOKEN)
   assert.equal(defaults.home, '/tmp/dsh-home/browser-bridge')
-  assert.equal(defaults.tokenPath, '/tmp/dsh-home/browser-bridge/token')
   assert.deepEqual(defaults.extensionIds, [])
   assert.deepEqual(defaults.uploadRoots, ['/home/tester/Downloads', '/home/tester/Desktop'])
   assert.equal(defaults.downloadDir, '/home/tester/Downloads/dsh-browser')
@@ -382,15 +382,19 @@ test('audit line shape drops typed text and records ok/ms/tool', async (t) => {
   assert.equal(failure.tool, 'click')
 })
 
-test('token file is generated once with 0600 and reused', async (t) => {
+test('the built-in token is used unless the environment overrides it', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'bridge-token-'))
   t.after(() => rm(home, { recursive: true, force: true }))
 
-  const first = await readOrCreateToken(home)
-  const second = await readOrCreateToken(home)
-  assert.match(first, /^[0-9a-f]{64}$/)
-  assert.equal(first, second)
-  assert.equal((await stat(join(home, 'token'))).mode & 0o777, 0o600)
+  const builtIn = await loadConfig({ DSH_BROWSER_BRIDGE_HOME: home })
+  assert.equal(builtIn.token, BRIDGE_DEFAULT_TOKEN)
+  assert.equal(existsSync(join(home, 'token')), false, 'the bridge must not create a token file')
+
+  const overridden = await loadConfig({ DSH_BROWSER_BRIDGE_TOKEN: 'deployment-secret' })
+  assert.equal(overridden.token, 'deployment-secret')
+
+  const blank = await loadConfig({ DSH_BROWSER_BRIDGE_TOKEN: '   ' })
+  assert.equal(blank.token, BRIDGE_DEFAULT_TOKEN)
 })
 
 test('all 16 tools register with zod schemas and disabled tools are omitted', () => {

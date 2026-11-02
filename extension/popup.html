@@ -19,9 +19,17 @@
           <input id="port-input" name="port" type="number" min="1" max="65535" step="1" inputmode="numeric" autocomplete="off" />
         </label>
         <label class="field">
-          <span class="field-label">Token</span>
-          <input id="token-input" name="token" type="password" autocomplete="off" spellcheck="false" />
+          <span class="field-label">Token override (optional)</span>
+          <input
+            id="token-input"
+            name="token"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="built-in token"
+          />
         </label>
+        <p class="muted">Blank uses the bridge's built-in token. No pairing step is needed.</p>
         <div class="actions">
           <button id="save-button" type="submit" class="button">Save</button>
           <button id="connect-button" type="button" class="button button-primary">Connect</button>

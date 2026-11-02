@@ -251,16 +251,19 @@ extension when you accept that scope. dsh's own approval prompts still apply
 (each tool call may ask once; dsh has no allow-always rule), so pair this with
 a permission preset you are comfortable with.
 
-**Install.** The bridge needs nothing beyond the bundle. For the extension:
+**Install.** The bridge needs nothing beyond the bundle, and the extension
+connects with a built-in token — no pairing step. For the extension:
 
-1. Start `dsh web` once so the bridge creates `$DSH_HOME/browser-bridge/token`
-   (default `~/.dsh/browser-bridge/token`, mode `0600`).
-2. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**,
+1. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**,
    and select the `extension/` directory of this package (for a profile
    install: `~/.dsh/profiles/web/node_modules/dsh-dev-plugins/extension`).
    Chrome asks for `debugger`, `tabs`, `storage`, `alarms`, and `downloads`.
-3. Open the extension popup, paste the token, press **Save**, then
-   **Connect**. The status dot turns green and the attached tabs appear.
+2. Restart `dsh web` so the bundle's `mcp-browser` row spawns the bridge. The
+   extension reconnects by itself; the popup shows **Connected** and the
+   attached tabs. The popup's optional **Token override** field is only needed
+   when the bridge sets `DSH_BROWSER_BRIDGE_TOKEN`. Coming from 0.7.0/0.7.1:
+   the old random 64-hex token is cleared once; a custom hex-shaped override
+   has to be re-entered once.
 
 Requires Chrome 120+ on the machine that runs `dsh web`; the debugger
 attachment shows Chrome's "being controlled by automated test software" banner
@@ -293,8 +296,10 @@ the next `observe`, a navigation, or a tab change, and a stale `ref` fails with
 a message telling the model to observe again.
 
 **Security and limits.** Everything is local: WebSocket on `127.0.0.1`, a
-pairing token, and an `Origin: chrome-extension://<id>` check (optionally pinned
-to an extension-id allowlist). Every tool call is appended to
+shared token (fixed built-in by default, overridable), and an
+`Origin: chrome-extension://<id>` check (optionally pinned to an extension-id
+allowlist — recommended when another local extension must not be able to
+connect). Every tool call is appended to
 `$DSH_HOME/browser-bridge/audit.jsonl` without secrets or typed text. `upload`
 only reads real files under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default
 `~/Downloads,~/Desktop`), `download op:"url"` writes only under
@@ -310,8 +315,8 @@ startup, so restart `dsh web` after changing it.
 |---|---|---|
 | `DSH_BROWSER_BRIDGE` | `1` | `0` disables the bridge and its tools (the settings switch has the same effect after a restart) |
 | `DSH_BROWSER_BRIDGE_PORT` | `8790` | local WebSocket port |
-| `DSH_BROWSER_BRIDGE_TOKEN` | generated file | pairing token override |
-| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | token, audit log |
+| `DSH_BROWSER_BRIDGE_TOKEN` | built-in fixed value | token override for private deployments |
+| `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | audit log |
 | `DSH_BROWSER_BRIDGE_EXTENSION_ID` | empty | allowed extension ids |
 | `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` | `~/Downloads,~/Desktop` | upload roots |
 | `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR` | `~/Downloads/dsh-browser` | bridge-side download destination |
