@@ -89,7 +89,13 @@ dsh web --host 127.0.0.1 --port 3080 --no-open
     notifications: true
     # 启用侧边栏 Token 统计页及其只读数据路由。
     statsPage: true
+    # 让聊天输入框的回车插入换行。
+    composerNewline: true
+    # 启用浏览器控制 MCP 工具（重启 dsh web 后生效）。
+    browserControl: true
 ```
+
+设置 → **开发插件** 提供同样的开关表单，不必手改此文件。
 
 ### 首次登录：不用带 token 的 URL
 
@@ -141,9 +147,15 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 页面读取 `GET /dsh-dev-plugins/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
 
+### 设置页
+
+设置 → **开发插件** 是一张开关表单，每项 bundle 功能一个开关，默认全部打开：回环页面视图、令牌登录页、浏览器通知、Token 统计页、输入框回车换行、浏览器控制。写入走宿主配置表单，因此会作为普通插件配置写进 profile patch，重启后仍然保留。
+
+宿主侧开关是 volatile 配置：运行中的插件实时读取，因此登录页和统计路由改完立即生效，无需重启。作用于浏览器半边的开关（通知、统计入口、回车换行）需要刷新页面，页面在写入后会显示刷新提示条。浏览器控制是启动时拉起的 MCP 子进程，必须重启 `dsh web` 才生效。
+
 ### 输入框：回车换行
 
-dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普通回车改为换行，发送改用 Cmd/Ctrl+回车或发送按钮。改写只作用于聊天输入框的 Lexical 编辑器：其他输入框的回车、以及斜杠命令/提及/文件菜单打开时的回车都保持上游行为；被改写的按键不会发送消息，输入法组词期间也不处理。该改写没有配置开关，始终生效。会话运行中时，键盘发送走 dsh 的加速提交路径，因此不会遵循发送按钮仍然遵循的排队/插话偏好。
+dsh 聊天输入框原本回车发送、Shift+回车换行。本 bundle 把普通回车改为换行，发送改用 Cmd/Ctrl+回车或发送按钮。改写只作用于聊天输入框的 Lexical 编辑器：其他输入框的回车、以及斜杠命令/提及/文件菜单打开时的回车都保持上游行为；被改写的按键不会发送消息，输入法组词期间也不处理。可在设置页关闭 `composerNewline` 开关（或在插件配置里设 `composerNewline: false`）。会话运行中时，键盘发送走 dsh 的加速提交路径，因此不会遵循发送按钮仍然遵循的排队/插话偏好。
 
 ### 浏览器控制
 
@@ -181,11 +193,11 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 交互类工具优先用 `ref`，回退 CSS `selector`；`evaluate` 是一切兜底。`ref` 在下一次 `observe`、页面导航或切 tab 后失效，过期会返回提示让模型重新 observe。
 
-**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、共享 token（默认内置固定值，可覆盖）、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧，建议其他本机扩展不可信时启用）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置；截图只作为 image 内容块返回、不落盘；网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。
+**安全与限制。** 全部本地：`127.0.0.1` 上的 WebSocket、共享 token（默认内置固定值，可覆盖）、`Origin: chrome-extension://<id>` 校验（可选按扩展 ID 白名单收紧，建议其他本机扩展不可信时启用）。每次工具调用写入 `$DSH_HOME/browser-bridge/audit.jsonl`，不记录密钥与输入文本。`upload` 只能读 `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS`（默认 `~/Downloads,~/Desktop`）下的真实文件，`download op:"url"` 只写 `DSH_BROWSER_BRIDGE_DOWNLOAD_DIR`（默认 `~/Downloads/dsh-browser`）——页面自身触发的下载仍走 Chrome 的下载目录设置；截图只作为 image 内容块返回、不落盘；网络响应体只在内存。危险工具可用 `DSH_BROWSER_BRIDGE_DISABLE` 单独关闭；`DSH_BROWSER_BRIDGE=0` 让 bridge 直接退出，不注册任何浏览器工具。设置页的 **浏览器控制** 开关通过插件配置表达同样意图，bridge 在启动时读取，因此修改后要重启 `dsh web`。
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `DSH_BROWSER_BRIDGE` | `1` | `0` 关闭 bridge 与全部浏览器工具 |
+| `DSH_BROWSER_BRIDGE` | `1` | `0` 关闭 bridge 与全部浏览器工具（设置页开关重启后等效） |
 | `DSH_BROWSER_BRIDGE_PORT` | `8790` | 本地 WebSocket 端口 |
 | `DSH_BROWSER_BRIDGE_TOKEN` | 内置固定值 | 私有部署的 token 覆盖 |
 | `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | 审计目录 |

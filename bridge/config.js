@@ -7,6 +7,7 @@
  * `DSH_BROWSER_BRIDGE_TOKEN` overrides it for deployments that want a secret
  * shared only through their own configuration.
  */
+import { readFile } from 'node:fs/promises'
 import { homedir as osHomedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -90,12 +91,43 @@ export function parseConfig(env = {}, { home, homedir } = {}) {
 }
 
 /**
- * Parse the bridge environment. Async so callers keep one startup shape even
- * though the token no longer touches the filesystem.
+ * Read the derived feature-state file the Host plugin writes.
+ *
+ * The plugin config stays authoritative; this file only carries the
+ * `browserControl` switch across the process boundary, because the MCP client
+ * spawns the bridge at boot and cannot reconfigure a running child. The
+ * settings page rewrites the file as soon as the switch changes; hand-editing
+ * the profile config while dsh web is stopped can race this boot-time read, so
+ * prefer the settings page for that switch.
+ * @param env - environment bag, normally `process.env`.
+ * @param options - `home` overrides the DSH home root (`$DSH_HOME`), `homedir`
+ *   overrides the user home used for the `.dsh` fallback.
+ * @returns the parsed state, or an empty object when the file is missing or
+ *   malformed.
+ */
+export async function readFeatureState(env = {}, { home, homedir } = {}) {
+  const userHome = homedir ?? osHomedir()
+  const dshHomeValue = (env.DSH_HOME ?? "").trim()
+  const dshHome = dshHomeValue !== "" ? dshHomeValue : (home ?? join(userHome, ".dsh"))
+  try {
+    const state = JSON.parse(await readFile(join(dshHome, "dsh-dev-plugins", "features.json"), "utf8"))
+    return state !== null && typeof state === "object" ? state : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Parse the bridge environment and apply the plugin-settings feature state.
  * @param env - environment bag, normally `process.env`.
  * @param options - see {@link parseConfig}.
- * @returns configuration with the fixed or overridden token.
+ * @returns configuration with the fixed or overridden token, disabled when the
+ *   settings page turned browser control off.
  */
 export async function loadConfig(env = process.env, options = {}) {
-  return parseConfig(env, options)
+  const config = parseConfig(env, options)
+  if (!config.enabled) return config
+  const features = await readFeatureState(env, options)
+  if (features.browserControl === false) config.enabled = false
+  return config
 }

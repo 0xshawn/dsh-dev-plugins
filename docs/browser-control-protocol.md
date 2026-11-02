@@ -1,6 +1,6 @@
 # Browser control: bridge and extension contract
 
-Status: design agreed for `v0.7.0`. This note is the implementation contract for
+Status: design agreed for `v0.8.0`. This note is the implementation contract for
 the `bridge/` and `extension/` halves; the user-facing docs live in
 `README.md` / `README.zh-CN.md`.
 
@@ -47,7 +47,7 @@ Both directions are JSON objects with a `type` field. `protocol` is `1`.
 Extension to bridge:
 
 ```json
-{ "type": "hello", "protocol": 1, "extensionId": "...", "version": "0.7.0" }
+{ "type": "hello", "protocol": 1, "extensionId": "...", "version": "0.8.0" }
 { "type": "rpc-result", "id": 7, "result": { } }
 { "type": "rpc-error", "id": 7, "error": { "code": "attach_failed", "message": "..." } }
 { "type": "event", "channel": "debugger", "payload": { "tabId": 12, "method": "Network.requestWillBeSent", "params": {} } }
@@ -57,7 +57,7 @@ Extension to bridge:
 Bridge to extension:
 
 ```json
-{ "type": "welcome", "protocol": 1, "bridgeVersion": "0.7.0" }
+{ "type": "welcome", "protocol": 1, "bridgeVersion": "0.8.0" }
 { "type": "rpc", "id": 7, "method": "targets", "params": {} }
 { "type": "ping", "id": 3 }
 ```

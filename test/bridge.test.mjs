@@ -11,7 +11,7 @@ import { WebSocket } from 'ws'
 
 import { auditToolCall, buildAuditLine } from '../bridge/audit.js'
 import { ChromeSession } from '../bridge/chrome.js'
-import { BRIDGE_DEFAULT_TOKEN, loadConfig, parseConfig } from '../bridge/config.js'
+import { BRIDGE_DEFAULT_TOKEN, loadConfig, parseConfig, readFeatureState } from '../bridge/config.js'
 import { stripSecretValues } from '../bridge/dom.js'
 import { saveDownload } from '../bridge/download.js'
 import { createNetworkLog, NETWORK_BODY_LIMIT, readNetworkBody, truncateBody } from '../bridge/network.js'
@@ -137,7 +137,7 @@ test('healthy pair: token, origin, hello/welcome, and a targets round-trip', asy
 
   const { socket, welcome } = await connectFakeExtension(relay)
   t.after(() => socket.terminate())
-  assert.deepEqual(welcome, { type: 'welcome', protocol: 1, bridgeVersion: '0.7.2' })
+  assert.deepEqual(welcome, { type: 'welcome', protocol: 1, bridgeVersion: '0.8.0' })
   assert.equal(relay.connected, true)
 
   const result = await relay.call('targets')
@@ -330,6 +330,21 @@ test('parseConfig applies defaults, environment overrides, and the disabled-tool
 
   assert.throws(() => parseConfig({ DSH_BROWSER_BRIDGE_PORT: '99999' }), /DSH_BROWSER_BRIDGE_PORT/)
   assert.throws(() => parseConfig({ DSH_BROWSER_BRIDGE_NETWORK_LIMIT: '0' }), /DSH_BROWSER_BRIDGE_NETWORK_LIMIT/)
+})
+
+test('the derived feature state disables the bridge when browser control is off', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'bridge-features-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const env = { DSH_HOME: home, DSH_BROWSER_BRIDGE_TOKEN: 'secret' }
+  assert.deepEqual(await readFeatureState(env), {})
+  const enabled = await loadConfig(env)
+  assert.equal(enabled.enabled, true)
+
+  await mkdir(join(home, 'dsh-dev-plugins'), { recursive: true })
+  await writeFile(join(home, 'dsh-dev-plugins', 'features.json'), '{"browserControl":false}\n')
+  const disabled = await loadConfig(env)
+  assert.equal(disabled.enabled, false)
+  assert.equal((await loadConfig({ ...env, DSH_BROWSER_BRIDGE: '0' })).enabled, false)
 })
 
 test('audit line shape drops typed text and records ok/ms/tool', async (t) => {

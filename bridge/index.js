@@ -15,7 +15,7 @@ import { createRelay } from './relay.js'
 import { registerTools } from './tools.js'
 
 /** Version reported to the extension in `welcome`; keep in sync with package.json. */
-const BRIDGE_VERSION = '0.7.2'
+const BRIDGE_VERSION = '0.8.0'
 
 let shuttingDown = false
 

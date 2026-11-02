@@ -402,6 +402,32 @@ test('statsPage: false leaves the data route unregistered', () => {
   assert.equal(installStatsRoute(authorizedContext(), { collect: async () => ({}) }, { statsPage: false }), false)
 })
 
+test('a live stats switch answers 404 without re-registering the route', async () => {
+  let route
+  let enabled = true
+  const ctx = authorizedContext()
+  ctx.get = ((get) => (service) => (service === 'webServer' ? {
+    protocol: 'http:',
+    register: (value) => {
+      route = value
+      return () => {}
+    },
+  } : get(service)))(ctx.get)
+  assert.equal(
+    installStatsRoute(ctx, { collect: async () => ({ ok: true }) }, {}, () => enabled),
+    true,
+  )
+  const onResponse = responseSink()
+  route.handler({ method: 'GET', url: STATS_DATA_PATH, on: () => {} }, onResponse)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(onResponse.status, 200)
+  enabled = false
+  const offResponse = responseSink()
+  route.handler({ method: 'GET', url: STATS_DATA_PATH, on: () => {} }, offResponse)
+  assert.equal(offResponse.status, 404)
+  assert.equal(JSON.parse(offResponse.body).error, 'stats-disabled')
+})
+
 test('the day series does not exceed the fill cap', () => {
   const stats = buildStats({
     sessions: [],

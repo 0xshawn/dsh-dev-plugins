@@ -1,19 +1,48 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { test } from 'node:test'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { after, before, test } from 'node:test'
 
 import {
   apply,
   Config,
+  featureEnabled,
+  featureStatePath,
   inject,
   installLoginPage,
   loginPageHtml,
   loopbackIndexRow,
   name,
   pinLaunchToken,
+  resolveDshHome,
   resolveLaunchToken,
   tokenMatches,
+  writeFeatureState,
 } from '../lib/index.js'
+
+/** Read the six settings-editable switches out of a resolved config. */
+function featureFlags(config) {
+  const flags = {}
+  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl']) {
+    flags[key] = featureEnabled(config, key)
+  }
+  return flags
+}
+
+/** Every apply() writes the derived bridge state; keep it inside a temp home. */
+let testHome
+let previousDshHome
+before(async () => {
+  previousDshHome = process.env.DSH_HOME
+  testHome = await mkdtemp(join(tmpdir(), 'dsh-dev-plugins-tests-'))
+  process.env.DSH_HOME = testHome
+})
+after(async () => {
+  if (previousDshHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousDshHome
+  await rm(testHome, { recursive: true, force: true })
+})
 
 /** Minimal Cordis context: one event emitter plus a `get` service lookup. */
 function fakeContext(connection) {
@@ -42,22 +71,70 @@ test('plugin metadata follows the Cordis plugin shape', () => {
 })
 
 test('Config defaults keep the patch behaviour', () => {
-  assert.deepEqual(Config({}), { loopback: true, launchToken: '', loginPage: true, notifications: true, statsPage: true })
-  assert.deepEqual(Config({ loopback: false, launchToken: 'fixed', loginPage: false, notifications: false, statsPage: false }), {
-    loopback: false,
-    launchToken: 'fixed',
-    loginPage: false,
-    notifications: false,
-    statsPage: false,
-  })
-  assert.deepEqual(Config({ notifications: false, statsPage: false }), {
+  const defaults = Config({})
+  // Settings pages are served only for volatile fields: the Host filters the
+  // entry out of the describe form otherwise, so pin the editable shape here.
+  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl']) {
+    assert.equal(typeof defaults[key]?.get, 'function', `${key} must be volatile`)
+  }
+  assert.equal(typeof defaults.launchToken, 'string', 'launchToken stays out of the settings form')
+  assert.deepEqual(featureFlags(defaults), {
     loopback: true,
-    launchToken: '',
+    loginPage: true,
+    notifications: true,
+    statsPage: true,
+    composerNewline: true,
+    browserControl: true,
+  })
+  assert.equal(Config({}).launchToken, '')
+  assert.deepEqual(
+    featureFlags(
+      Config({
+        loopback: false,
+        launchToken: 'fixed',
+        loginPage: false,
+        notifications: false,
+        statsPage: false,
+        composerNewline: false,
+        browserControl: false,
+      }),
+    ),
+    {
+      loopback: false,
+      loginPage: false,
+      notifications: false,
+      statsPage: false,
+      composerNewline: false,
+      browserControl: false,
+    },
+  )
+  assert.equal(
+    Config({
+      launchToken: 'fixed',
+    }).launchToken,
+    'fixed',
+  )
+  assert.deepEqual(featureFlags(Config({ notifications: false, statsPage: false })), {
+    loopback: true,
     loginPage: true,
     notifications: false,
     statsPage: false,
+    composerNewline: true,
+    browserControl: true,
   })
   assert.throws(() => Config({ loopback: 'yes' }), /expected boolean/u)
+})
+
+test('feature state resolves the dsh home and writes the browser-control switch', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-dev-plugins-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  assert.equal(resolveDshHome({ DSH_HOME: home }), home)
+  assert.equal(featureStatePath({ DSH_HOME: home }), join(home, 'dsh-dev-plugins', 'features.json'))
+  assert.equal(writeFeatureState(undefined, { DSH_HOME: home }), false)
+  assert.equal(writeFeatureState(false, { DSH_HOME: home }), true)
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
+    browserControl: false,
+  })
 })
 
 test('resolveLaunchToken prefers config, then DSH_WEB_TOKEN, then the random token', () => {
@@ -85,7 +162,56 @@ test('apply injects one loopback row into the served index', () => {
     loopbackIndexRow(),
     { kind: 'global', name: '__DSH_DEV_PLUGINS_NOTIFY__', value: { enabled: true } },
     { kind: 'global', name: '__DSH_DEV_PLUGINS_STATS__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_COMPOSER__', value: { enabled: true } },
   ])
+})
+
+test('apply persists the browser-control switch for the bridge to read at boot', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-dev-plugins-apply-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  })
+  const ctx = fakeContext(fakeConnection())
+  apply(ctx, { loopback: true, launchToken: '', browserControl: false })
+  const table = []
+  ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
+  assert.deepEqual(
+    table.filter((row) => row.kind === 'global').map((row) => row.name),
+    ['__DSH_DEV_PLUGINS_NOTIFY__', '__DSH_DEV_PLUGINS_STATS__', '__DSH_DEV_PLUGINS_COMPOSER__'],
+  )
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
+    browserControl: false,
+  })
+  assert.equal(ctx.listenerCount('loader/volatile-update'), 1)
+})
+
+test('a volatile settings edit refreshes the derived feature state and page globals', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-dev-plugins-live-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  })
+  const live = { browserControl: true, composerNewline: true, loopback: true, notifications: true, statsPage: true, loginPage: true }
+  const config = Object.fromEntries(Object.keys(live).map((key) => [key, { get: () => live[key] }]))
+  const ctx = fakeContext(fakeConnection())
+  apply(ctx, { ...config, launchToken: '' })
+  live.browserControl = false
+  live.composerNewline = false
+  ctx.emit('loader/volatile-update', [['browserControl']])
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
+    browserControl: false,
+  })
+  const table = []
+  ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
+  const composer = table.find((row) => row.name === '__DSH_DEV_PLUGINS_COMPOSER__')
+  assert.deepEqual(composer?.value, { enabled: false })
 })
 
 test('apply with loopback=false leaves the page authority alone but keeps configuration', () => {
@@ -96,6 +222,7 @@ test('apply with loopback=false leaves the page authority alone but keeps config
   assert.deepEqual(table, [
     { kind: 'global', name: '__DSH_DEV_PLUGINS_NOTIFY__', value: { enabled: true } },
     { kind: 'global', name: '__DSH_DEV_PLUGINS_STATS__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_COMPOSER__', value: { enabled: true } },
   ])
 })
 
@@ -314,10 +441,10 @@ test('non-GET requests keep the stock behavior', () => {
   assert.equal(fixture.originalCalls.length, 1)
 })
 
-test('loginPage: false leaves authorizeIndex untouched', () => {
+test('loginPage: false delegates to the stock authorizeIndex', () => {
   const fixture = loginFixture({ loginPage: false })
-  assert.equal(fixture.installed, false)
-  assert.equal(fixture.connection.authorizeIndex.name, 'authorizeIndex')
+  assert.equal(fixture.installed, true)
+  assert.notEqual(fixture.connection.authorizeIndex.name, 'authorizeIndex')
   fixture.connection.authorizeIndex(fakeRequest('/'), fakeResponse())
   assert.equal(fixture.originalCalls.length, 1)
 })

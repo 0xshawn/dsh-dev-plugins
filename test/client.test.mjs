@@ -621,6 +621,119 @@ test('a disabled host statistics switch installs no panel', async () => {
   }
 })
 
+test('the settings section exposes one switch per bundle feature', async () => {
+  const calls = []
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+    useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
+    useEffect: () => {},
+  }
+  const client = await loadClientBundle({ react })
+  const registrations = []
+  const components = []
+  const effects = []
+  let snapshot = {
+    status: 'ready',
+    writable: true,
+    value: {
+      loopback: true,
+      loginPage: true,
+      notifications: true,
+      statsPage: true,
+      composerNewline: true,
+      browserControl: true,
+    },
+  }
+  const form = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    set: async (field, value) => {
+      calls.push([field, value])
+      return true
+    },
+  }
+  const ctx = {
+    configForms: {
+      get(id) {
+        assert.equal(id, 'dsh-dev-plugins')
+        return form
+      },
+      whileServed(namespaces, register) {
+        assert.deepEqual(namespaces, ['dsh-dev-plugins'])
+        return register()
+      },
+    },
+    slots: {
+      inject(seat, callback) {
+        assert.equal(seat, 'settings.section')
+        return callback()
+      },
+      register(registration, component) {
+        registrations.push(registration)
+        components.push(component)
+        return () => {}
+      },
+    },
+    locale: { register: () => () => {}, bind: () => (key) => key },
+    effect(callback, label) {
+      effects.push(label)
+      return callback()
+    },
+  }
+  assert.equal(client.__test.installSettingsPanelWith(ctx), true)
+  assert.equal(registrations.length, 1)
+  assert.equal(registrations[0].name, 'settings.section')
+  assert.equal(registrations[0].id, 'dsh-dev-plugins')
+  assert.equal(registrations[0].order, 40)
+  assert.equal(registrations[0].locale, 'dsh-dev-plugins.settings')
+  assert.equal(registrations[0].label(), 'nav')
+  assert.deepEqual(effects, ['dsh-dev-plugins: settings dictionaries', 'dsh-dev-plugins: settings page'])
+
+  const flatten = (node, out = []) => {
+    if (Array.isArray(node)) {
+      for (const child of node) flatten(child, out)
+      return out
+    }
+    if (node === null || node === undefined || typeof node !== 'object') return out
+    out.push(node)
+    for (const child of node.children ?? []) flatten(child, out)
+    return out
+  }
+  const page = components[0]({ t: (key) => key })
+  const switches = flatten(page).filter((node) => node.type === 'button' && node.props.role === 'switch')
+  assert.equal(switches.length, 6)
+  assert.deepEqual(
+    switches.map((node) => node.props['aria-label']),
+    ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl'],
+  )
+  assert.equal(switches[0].props['aria-checked'], 'true')
+  switches[0].props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls, [['loopback', false]])
+
+  snapshot = { ...snapshot, writable: false }
+  const readOnlyPage = components[0]({ t: (key) => key })
+  const readOnlySwitches = flatten(readOnlyPage).filter((node) => node.type === 'button' && node.props.role === 'switch')
+  assert.equal(readOnlySwitches.every((node) => node.props.disabled), true)
+})
+
+test('the composer switch is read from the host-injected global', async () => {
+  const client = await loadClientBundle()
+  const previous = globalThis.__DSH_DEV_PLUGINS_COMPOSER__
+  try {
+    delete globalThis.__DSH_DEV_PLUGINS_COMPOSER__
+    assert.equal(client.__test.composerEnabled(), true)
+    globalThis.__DSH_DEV_PLUGINS_COMPOSER__ = { enabled: false }
+    assert.equal(client.__test.composerEnabled(), false)
+    globalThis.__DSH_DEV_PLUGINS_COMPOSER__ = { enabled: true }
+    assert.equal(client.__test.composerEnabled(), true)
+  } finally {
+    if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_COMPOSER__
+    else globalThis.__DSH_DEV_PLUGINS_COMPOSER__ = previous
+  }
+})
+
 /** Minimal KeyboardEvent stand-in for the replay assertion. */
 class FakeKeyboardEvent {
   constructor(type, init) {

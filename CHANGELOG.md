@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0 — 2026-11-02
+
+Feature switches: a Settings page for the whole bundle.
+
+- New **Settings → Dev plugins** section with one switch per feature, all on by
+  default: loopback page view, token sign-in page, browser notifications, token
+  usage page, composer Enter rewrite, and browser control.
+- Switches read and write the plugin config through the Host configuration form
+  (`ctx.configForms`), so they persist in the profile patch like a hand-written
+  override. The editable fields are `volatile()`, so the running plugin reads
+  host-side changes live instead of remounting; the page shows a reload banner
+  when a switch changes the browser half.
+- New `composerNewline` config switch, injected as
+  `__DSH_DEV_PLUGINS_COMPOSER__`; the client half installs the Enter rewrite only
+  when it is on.
+- New `browserControl` config switch. The browser-control bridge is a boot-time
+  MCP child process, so the Host writes the derived
+  `$DSH_HOME/dsh-dev-plugins/features.json`, the bridge reads it at startup, and
+  the switch takes effect after `dsh web` restarts.
+- `DSH_BROWSER_BRIDGE=0` still disables the bridge directly; the settings switch
+  writes the same intent through plugin config.
+
 ## 0.7.2 — 2026-11-02
 
 Built-in bridge token: the Chrome extension needs no pairing step.
