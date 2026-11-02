@@ -126,6 +126,30 @@ export async function readOrCreateToken(home) {
 }
 
 /**
+ * Read the derived feature-state file the Host plugin writes.
+ *
+ * The plugin config stays authoritative; this file only carries the
+ * `browserControl` switch across the process boundary, because the MCP client
+ * spawns the bridge at boot and cannot reconfigure a running child.
+ * @param env - environment bag, normally `process.env`.
+ * @param options - `home` overrides the DSH home root (`$DSH_HOME`), `homedir`
+ *   overrides the user home used for the `.dsh` fallback.
+ * @returns the parsed state, or an empty object when the file is missing or
+ *   malformed.
+ */
+export async function readFeatureState(env = {}, { home, homedir } = {}) {
+  const userHome = homedir ?? osHomedir()
+  const dshHomeValue = (env.DSH_HOME ?? '').trim()
+  const dshHome = dshHomeValue !== '' ? dshHomeValue : (home ?? join(userHome, '.dsh'))
+  try {
+    const state = JSON.parse(await readFile(join(dshHome, 'dsh-dev-plugins', 'features.json'), 'utf8'))
+    return state !== null && typeof state === 'object' ? state : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
  * Parse the environment and resolve the pairing token file.
  * @param env - environment bag, normally `process.env`.
  * @param options - see {@link parseConfig}.
@@ -134,6 +158,11 @@ export async function readOrCreateToken(home) {
 export async function loadConfig(env = process.env, options = {}) {
   const config = parseConfig(env, options)
   if (!config.enabled) return config
+  const features = await readFeatureState(env, options)
+  if (features.browserControl === false) {
+    config.enabled = false
+    return config
+  }
   if (config.token === null) config.token = await readOrCreateToken(config.home)
   return config
 }

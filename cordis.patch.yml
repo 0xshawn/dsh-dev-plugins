@@ -24,9 +24,10 @@
 #    the bridge on stdio and registers its tools as mcp__browser__*. The bridge
 #    path resolves through the profile that holds this package, so the patch
 #    works for any profile name and install location; `node` is the running dsh
-#    interpreter. Set DSH_BROWSER_BRIDGE=0 to make the bridge exit and keep the
-#    tools unregistered; every other knob is an environment variable documented
-#    in docs/browser-control-protocol.md.
+#    interpreter. Set DSH_BROWSER_BRIDGE=0, or turn off Browser control on the
+#    plugin settings page, to make the bridge exit and keep the tools
+#    unregistered; every other knob is an environment variable documented in
+#    docs/browser-control-protocol.md.
 - insert:
     - id: mcp-browser
       name: '@deepseek-ai/dsh-mcp-client'

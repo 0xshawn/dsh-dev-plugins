@@ -89,7 +89,14 @@ Override the `dsh-dev-plugins` row in the profile patch (`$DSH_HOME/profiles/web
     notifications: true
     # Enable the sidebar token statistics page and its read-only data route.
     statsPage: true
+    # Make Enter insert a line break in the chat composer.
+    composerNewline: true
+    # Enable the browser-control MCP tools (applies after dsh web restarts).
+    browserControl: true
 ```
+
+Settings → **Dev plugins** exposes the same switches with a form, so the values
+can be changed without editing this file.
 
 ### First login without the token URL
 
@@ -201,6 +208,20 @@ The page reads `GET /dsh-dev-plugins/stats/data?from=<ms>&to=<ms>&tz=<IANA>`
 applies the same trusted-authority and launch-token cookie checks as `/api`; it
 returns only token totals, workspace paths, and day keys, never message content.
 
+### Settings page
+
+Settings → **Dev plugins** is a form with one switch per bundle feature, all on
+by default: loopback page view, token sign-in page, browser notifications, token
+usage page, composer Enter rewrite, and browser control. Writes go through the
+Host configuration form, so they land in the profile patch as ordinary plugin
+config and survive restarts.
+
+Host-side switches apply when the Loader reconciles the plugin. Switches that
+change the browser half (notifications, the statistics entry, the composer
+rewrite) need a page reload; the page shows a reload banner after a write.
+Browser control is a boot-time MCP child process, so its switch needs a `dsh
+web` restart.
+
 ### Composer: Enter inserts a line break
 
 The dsh chat composer submits on Enter and inserts a line break on Shift+Enter.
@@ -208,8 +229,9 @@ This bundle flips the plain Enter key: it now inserts a line break, and a
 message is sent with Cmd/Ctrl+Enter or the Send button. The rewrite targets the
 composer's Lexical editor only — a plain Enter in any other input, and Enter
 while a slash-command, mention, or file menu is open, keep their stock
-behaviour, and IME composition is left alone. The rewrite is unconditional:
-there is no plugin-config switch. While a session is running, the keyboard send
+behaviour, and IME composition is left alone. Turn it off with the
+`composerNewline` switch on the settings page (or `composerNewline: false` in
+the plugin config). While a session is running, the keyboard send
 uses dsh's accelerated submit, so it does not follow the busy-Enter queue/steer
 preference the Send button still honours.
 
@@ -279,11 +301,13 @@ only reads real files under `DSH_BROWSER_BRIDGE_UPLOAD_ROOTS` (default
 page-triggered downloads keep Chrome's own download folder. Screenshots are
 returned as image blocks and never written, and network bodies stay in memory. Risky tools can be switched off individually
 with `DSH_BROWSER_BRIDGE_DISABLE`, and `DSH_BROWSER_BRIDGE=0` exits the bridge
-so no browser tools are registered.
+so no browser tools are registered. The settings page's **Browser control**
+switch writes the same intent through the plugin config; the bridge reads it at
+startup, so restart `dsh web` after changing it.
 
 | variable | default | meaning |
 |---|---|---|
-| `DSH_BROWSER_BRIDGE` | `1` | `0` disables the bridge and its tools |
+| `DSH_BROWSER_BRIDGE` | `1` | `0` disables the bridge and its tools (the settings switch has the same effect after a restart) |
 | `DSH_BROWSER_BRIDGE_PORT` | `8790` | local WebSocket port |
 | `DSH_BROWSER_BRIDGE_TOKEN` | generated file | pairing token override |
 | `DSH_BROWSER_BRIDGE_HOME` | `$DSH_HOME/browser-bridge` | token, audit log |

@@ -621,6 +621,64 @@ test('a disabled host statistics switch installs no panel', async () => {
   }
 })
 
+test('the settings section exposes one switch per bundle feature', async () => {
+  const client = await loadClientBundle({ react: { createElement: () => undefined } })
+  const registrations = []
+  const effects = []
+  const form = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'loading' }) }
+  const ctx = {
+    configForms: {
+      get(id) {
+        assert.equal(id, 'dsh-dev-plugins')
+        return form
+      },
+      whileServed(namespaces, register) {
+        assert.deepEqual(namespaces, ['dsh-dev-plugins'])
+        return register()
+      },
+    },
+    slots: {
+      inject(seat, callback) {
+        assert.equal(seat, 'settings.section')
+        return callback()
+      },
+      register(registration) {
+        registrations.push(registration)
+        return () => {}
+      },
+    },
+    locale: { register: () => () => {}, bind: () => (key) => key },
+    effect(callback, label) {
+      effects.push(label)
+      return callback()
+    },
+  }
+  assert.equal(client.__test.installSettingsPanelWith(ctx), true)
+  assert.equal(registrations.length, 1)
+  assert.equal(registrations[0].name, 'settings.section')
+  assert.equal(registrations[0].id, 'dsh-dev-plugins')
+  assert.equal(registrations[0].order, 40)
+  assert.equal(registrations[0].locale, 'dsh-dev-plugins.settings')
+  assert.equal(registrations[0].label(), 'nav')
+  assert.deepEqual(effects, ['dsh-dev-plugins: settings dictionaries', 'dsh-dev-plugins: settings page'])
+})
+
+test('the composer switch is read from the host-injected global', async () => {
+  const client = await loadClientBundle()
+  const previous = globalThis.__DSH_DEV_PLUGINS_COMPOSER__
+  try {
+    delete globalThis.__DSH_DEV_PLUGINS_COMPOSER__
+    assert.equal(client.__test.composerEnabled(), true)
+    globalThis.__DSH_DEV_PLUGINS_COMPOSER__ = { enabled: false }
+    assert.equal(client.__test.composerEnabled(), false)
+    globalThis.__DSH_DEV_PLUGINS_COMPOSER__ = { enabled: true }
+    assert.equal(client.__test.composerEnabled(), true)
+  } finally {
+    if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_COMPOSER__
+    else globalThis.__DSH_DEV_PLUGINS_COMPOSER__ = previous
+  }
+})
+
 /** Minimal KeyboardEvent stand-in for the replay assertion. */
 class FakeKeyboardEvent {
   constructor(type, init) {
