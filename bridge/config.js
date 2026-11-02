@@ -2,16 +2,23 @@
  * Environment configuration for the browser-control bridge.
  *
  * `parseConfig` is pure so tests can pin every default without touching the
- * filesystem or the real process environment. `loadConfig` adds the one
- * side effect the bridge needs at startup: the pairing token file.
+ * filesystem or the real process environment. The pairing token is a fixed
+ * built-in value so the extension can connect without a manual pairing step;
+ * `DSH_BROWSER_BRIDGE_TOKEN` overrides it for deployments that want a secret
+ * shared only through their own configuration.
  */
-import { randomBytes } from 'node:crypto'
-import { chmod, mkdir, open, readFile, writeFile } from 'node:fs/promises'
 import { homedir as osHomedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 /** WebSocket port used when `DSH_BROWSER_BRIDGE_PORT` is unset. */
 export const DEFAULT_PORT = 8790
+/**
+ * Fixed pairing token shared with the extension when no environment override
+ * is configured. It is a convenience default, not a secret: the listener binds
+ * loopback only, and `DSH_BROWSER_BRIDGE_EXTENSION_ID` can restrict which
+ * extension origin is accepted.
+ */
+export const BRIDGE_DEFAULT_TOKEN = 'dsh-dev-plugins-browser-bridge-v1'
 /** Network ring-buffer size used when `DSH_BROWSER_BRIDGE_NETWORK_LIMIT` is unset. */
 export const DEFAULT_NETWORK_LIMIT = 500
 
@@ -43,8 +50,7 @@ function parseInteger(value, fallback, { name, min, max }) {
  * @param env - environment bag, normally `process.env`.
  * @param options - `home` overrides the DSH home root (`$DSH_HOME`), `homedir`
  *   overrides the user home used for `~` and the `.dsh` fallback.
- * @returns validated configuration; `token` is null when the loader has to
- *   read or create the token file.
+ * @returns validated configuration; `token` is always a non-empty string.
  */
 export function parseConfig(env = {}, { home, homedir } = {}) {
   const userHome = homedir ?? osHomedir()
@@ -64,9 +70,8 @@ export function parseConfig(env = {}, { home, homedir } = {}) {
       min: 1,
       max: 65535,
     }),
-    token: tokenValue !== '' ? tokenValue : null,
+    token: tokenValue !== '' ? tokenValue : BRIDGE_DEFAULT_TOKEN,
     home: bridgeHome,
-    tokenPath: join(bridgeHome, 'token'),
     extensionIds: splitList(env.DSH_BROWSER_BRIDGE_EXTENSION_ID),
     uploadRoots:
       uploadRootsValue !== ''
@@ -85,55 +90,12 @@ export function parseConfig(env = {}, { home, homedir } = {}) {
 }
 
 /**
- * Read the pairing token, generating and persisting one on first use.
- * The file is written with mode 0600 and never regenerated while it holds a
- * non-empty token, so restarts keep a previously paired extension working.
- * @param home - bridge home directory.
- * @returns the stored token.
- */
-export async function readOrCreateToken(home) {
-  await mkdir(home, { recursive: true, mode: 0o700 })
-  await chmod(home, 0o700).catch(() => {})
-  const tokenPath = join(home, 'token')
-
-  try {
-    const existing = (await readFile(tokenPath, 'utf8')).trim()
-    if (existing !== '') {
-      await chmod(tokenPath, 0o600).catch(() => {})
-      return existing
-    }
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error
-  }
-
-  const token = randomBytes(32).toString('hex')
-  try {
-    const handle = await open(tokenPath, 'wx', 0o600)
-    try {
-      await handle.writeFile(`${token}\n`)
-    } finally {
-      await handle.close()
-    }
-    return token
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error
-    const existing = (await readFile(tokenPath, 'utf8')).trim()
-    if (existing !== '') return existing
-    // A concurrent start won the create race and left an empty file; replace it.
-    await writeFile(tokenPath, `${token}\n`, { mode: 0o600 })
-    return token
-  }
-}
-
-/**
- * Parse the environment and resolve the pairing token file.
+ * Parse the bridge environment. Async so callers keep one startup shape even
+ * though the token no longer touches the filesystem.
  * @param env - environment bag, normally `process.env`.
  * @param options - see {@link parseConfig}.
- * @returns configuration with `token` always set when enabled.
+ * @returns configuration with the fixed or overridden token.
  */
 export async function loadConfig(env = process.env, options = {}) {
-  const config = parseConfig(env, options)
-  if (!config.enabled) return config
-  if (config.token === null) config.token = await readOrCreateToken(config.home)
-  return config
+  return parseConfig(env, options)
 }

@@ -25,7 +25,7 @@ function createChrome() {
     listeners,
     runtime: {
       id: 'test-extension-id',
-      getManifest: () => ({ version: '0.7.0' }),
+      getManifest: () => ({ version: '0.7.2' }),
       onMessage: { addListener: (listener) => listeners.onMessage.push(listener) },
       onInstalled: { addListener: (listener) => listeners.onInstalled.push(listener) },
       onStartup: { addListener: (listener) => listeners.onStartup.push(listener) },
@@ -209,6 +209,31 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
+test('the built-in token connects without any pairing step', async () => {
+  seam.setWebSocketImpl(FakeWebSocket)
+  seam.resetState()
+  assert.equal(seam.getState().usesDefaultToken, true)
+  assert.equal(seam.getState().token, '')
+
+  const loaded = await seam.loadSettings()
+  assert.equal(loaded, undefined)
+  assert.equal(seam.connect(), true)
+  const ws = FakeWebSocket.instances[0]
+  assert.equal(ws.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
+
+  // Saving a blank override keeps the built-in token.
+  ws.serverClose(1006, 'network')
+  await seam.saveSettings('   ', 8790)
+  assert.equal(seam.getState().usesDefaultToken, true)
+  await seam.connect()
+  const next = FakeWebSocket.instances.at(-1)
+  assert.equal(next.url.endsWith(`?token=${encodeURIComponent(seam.DEFAULT_TOKEN)}`), true)
+
+  // A stored override still wins.
+  await seam.saveSettings('custom-token', 8790)
+  assert.equal(seam.getState().usesDefaultToken, false)
+})
+
 test('parseServerUrl encodes the token and uses the port', () => {
   const url = seam.parseServerUrl(8791, 'a b&c')
   assert.equal(url, 'ws://127.0.0.1:8791/extension?token=a%20b%26c')
@@ -248,7 +273,7 @@ test('parseChord and nextState cover the exposed constant maps', () => {
   assert.deepEqual(seam.CHORD_MODIFIERS, { alt: 1, ctrl: 2, meta: 4, shift: 8 })
   assert.equal(seam.ERROR_CODES.attachFailed, 'attach_failed')
 
-  const base = { token: '', port: seam.DEFAULT_PORT, connected: false, attached: new Map(), lastError: null }
+  const base = { token: seam.DEFAULT_TOKEN, port: seam.DEFAULT_PORT, connected: false, attached: new Map(), lastError: null }
   const welcome = seam.nextState(base, { type: 'welcome' })
   assert.equal(welcome.connected, true)
   assert.equal(welcome.lastError, null)
@@ -439,11 +464,11 @@ test('hello is sent with protocol 1 and the extension id after open', async () =
     type: 'hello',
     protocol: 1,
     extensionId: 'test-extension-id',
-    version: '0.7.0',
+    version: '0.7.2',
   })
   assert.equal(seam.getState().connected, false)
 
-  ws.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.0' })
+  ws.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.2' })
   assert.equal(seam.getState().connected, true)
   assert.equal(seam.getState().lastError, null)
 
@@ -455,7 +480,7 @@ test('hello is sent with protocol 1 and the extension id after open', async () =
   const next = FakeWebSocket.instances.at(-1)
   assert.notEqual(next, ws)
   next.open()
-  next.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.0' })
+  next.receive({ type: 'welcome', protocol: 1, bridgeVersion: '0.7.2' })
   assert.equal(seam.getReconnectAttempt(), 0)
 })
 

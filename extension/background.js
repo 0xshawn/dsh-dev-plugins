@@ -32,6 +32,12 @@ const DEBUGGER_PROTOCOL_VERSION = '1.3'
 /** chrome.storage.local keys. */
 const STORAGE_TOKEN = 'token'
 const STORAGE_PORT = 'port'
+/**
+ * Built-in pairing token shared with the bridge. It lets the extension connect
+ * with no manual pairing step; populate the popup's optional override to use a
+ * deployment-specific token instead.
+ */
+const DEFAULT_TOKEN = 'dsh-dev-plugins-browser-bridge-v1'
 /** WebSocket readyState values. */
 const SOCKET_CONNECTING = 0
 const SOCKET_OPEN = 1
@@ -53,7 +59,7 @@ const DEBUGGER_EVENT_CHANNEL = 'debugger'
  * popup; membership in that map is also the gate for forwarding debugger events.
  */
 const state = {
-  token: '',
+  token: DEFAULT_TOKEN,
   port: DEFAULT_PORT,
   connected: false,
   attached: new Map(),
@@ -252,7 +258,10 @@ function attachedList() {
 /** Snapshot of everything the popup and tests read. */
 function getState() {
   return {
-    token: state.token,
+    // The popup only shows an explicit override; the built-in token is never
+    // echoed back into the settings form.
+    token: state.token === DEFAULT_TOKEN ? '' : state.token,
+    usesDefaultToken: state.token === DEFAULT_TOKEN,
     port: state.port,
     connected: state.connected,
     attached: attachedList(),
@@ -545,7 +554,8 @@ async function loadSettings() {
   try {
     const stored = await chrome.storage.local.get([STORAGE_TOKEN, STORAGE_PORT])
     if (stored !== null && typeof stored === 'object') {
-      if (typeof stored.token === 'string') state.token = stored.token
+      const storedToken = typeof stored.token === 'string' ? stored.token.trim() : ''
+      state.token = storedToken !== '' ? storedToken : DEFAULT_TOKEN
       if (stored.port !== undefined && stored.port !== null) state.port = normalizePort(stored.port)
     }
   } catch (error) {
@@ -556,7 +566,8 @@ async function loadSettings() {
 
 /** Persist `{ token, port }` to chrome.storage.local. */
 async function saveSettings(token, port) {
-  state.token = typeof token === 'string' ? token.trim() : ''
+  const override = typeof token === 'string' ? token.trim() : ''
+  state.token = override !== '' ? override : DEFAULT_TOKEN
   state.port = normalizePort(port)
   await chrome.storage.local.set({ [STORAGE_TOKEN]: state.token, [STORAGE_PORT]: state.port })
   settingsLoaded = true
@@ -683,10 +694,6 @@ function connect() {
   manualDisconnect = false
   if (typeof WebSocketImpl !== 'function') {
     updateState({ type: 'error', error: 'This browser cannot open a WebSocket.' })
-    return false
-  }
-  if (typeof state.token !== 'string' || state.token === '') {
-    updateState({ type: 'error', error: 'Pairing token is missing. Save the token from the bridge first.' })
     return false
   }
   updateState({ type: 'connecting' })
@@ -818,6 +825,7 @@ function installListeners() {
 const testSeam = {
   PROTOCOL_VERSION,
   DEFAULT_PORT,
+  DEFAULT_TOKEN,
   ERROR_CODES,
   CHORD_MODIFIERS,
   parseServerUrl,
@@ -857,7 +865,7 @@ const testSeam = {
     pingCounter = 0
     handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS
     frameSender = defaultFrameSender
-    state.token = ''
+    state.token = DEFAULT_TOKEN
     state.port = DEFAULT_PORT
     state.connected = false
     state.attached = new Map()
