@@ -9,8 +9,9 @@ Feature switches: a Settings page for the whole bundle.
   usage page, composer Enter rewrite, and browser control.
 - Switches read and write the plugin config through the Host configuration form
   (`ctx.configForms`), so they persist in the profile patch like a hand-written
-  override. The page shows a reload banner when a switch changes the browser
-  half.
+  override. The editable fields are `volatile()`, so the running plugin reads
+  host-side changes live instead of remounting; the page shows a reload banner
+  when a switch changes the browser half.
 - New `composerNewline` config switch, injected as
   `__DSH_DEV_PLUGINS_COMPOSER__`; the client half installs the Enter rewrite only
   when it is on.

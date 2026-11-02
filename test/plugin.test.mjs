@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import {
   apply,
   Config,
+  featureEnabled,
   featureStatePath,
   inject,
   installLoginPage,
@@ -19,6 +20,15 @@ import {
   tokenMatches,
   writeFeatureState,
 } from '../lib/index.js'
+
+/** Read the six settings-editable switches out of a resolved config. */
+function featureFlags(config) {
+  const flags = {}
+  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl']) {
+    flags[key] = featureEnabled(config, key)
+  }
+  return flags
+}
 
 /** Minimal Cordis context: one event emitter plus a `get` service lookup. */
 function fakeContext(connection) {
@@ -47,28 +57,29 @@ test('plugin metadata follows the Cordis plugin shape', () => {
 })
 
 test('Config defaults keep the patch behaviour', () => {
-  assert.deepEqual(Config({}), {
+  assert.deepEqual(featureFlags(Config({})), {
     loopback: true,
-    launchToken: '',
     loginPage: true,
     notifications: true,
     statsPage: true,
     composerNewline: true,
     browserControl: true,
   })
+  assert.equal(Config({}).launchToken, '')
   assert.deepEqual(
-    Config({
-      loopback: false,
-      launchToken: 'fixed',
-      loginPage: false,
-      notifications: false,
-      statsPage: false,
-      composerNewline: false,
-      browserControl: false,
-    }),
+    featureFlags(
+      Config({
+        loopback: false,
+        launchToken: 'fixed',
+        loginPage: false,
+        notifications: false,
+        statsPage: false,
+        composerNewline: false,
+        browserControl: false,
+      }),
+    ),
     {
       loopback: false,
-      launchToken: 'fixed',
       loginPage: false,
       notifications: false,
       statsPage: false,
@@ -76,9 +87,14 @@ test('Config defaults keep the patch behaviour', () => {
       browserControl: false,
     },
   )
-  assert.deepEqual(Config({ notifications: false, statsPage: false }), {
+  assert.equal(
+    Config({
+      launchToken: 'fixed',
+    }).launchToken,
+    'fixed',
+  )
+  assert.deepEqual(featureFlags(Config({ notifications: false, statsPage: false })), {
     loopback: true,
-    launchToken: '',
     loginPage: true,
     notifications: false,
     statsPage: false,
@@ -93,8 +109,8 @@ test('feature state resolves the dsh home and writes the browser-control switch'
   t.after(() => rm(home, { recursive: true, force: true }))
   assert.equal(resolveDshHome({ DSH_HOME: home }), home)
   assert.equal(featureStatePath({ DSH_HOME: home }), join(home, 'dsh-dev-plugins', 'features.json'))
-  assert.equal(writeFeatureState({}, { DSH_HOME: home }), false)
-  assert.equal(writeFeatureState({ browserControl: false }, { DSH_HOME: home }), true)
+  assert.equal(writeFeatureState(undefined, { DSH_HOME: home }), false)
+  assert.equal(writeFeatureState(false, { DSH_HOME: home }), true)
   assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
     browserControl: false,
   })
@@ -149,6 +165,32 @@ test('apply persists the browser-control switch for the bridge to read at boot',
   assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
     browserControl: false,
   })
+  assert.equal(ctx.listenerCount('loader/volatile-update'), 1)
+})
+
+test('a volatile settings edit refreshes the derived feature state and page globals', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-dev-plugins-live-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  })
+  const live = { browserControl: true, composerNewline: true, loopback: true, notifications: true, statsPage: true, loginPage: true }
+  const config = Object.fromEntries(Object.keys(live).map((key) => [key, { get: () => live[key] }]))
+  const ctx = fakeContext(fakeConnection())
+  apply(ctx, { ...config, launchToken: '' })
+  live.browserControl = false
+  live.composerNewline = false
+  ctx.emit('loader/volatile-update', [['browserControl']])
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
+    browserControl: false,
+  })
+  const table = []
+  ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
+  const composer = table.find((row) => row.name === '__DSH_DEV_PLUGINS_COMPOSER__')
+  assert.deepEqual(composer?.value, { enabled: false })
 })
 
 test('apply with loopback=false leaves the page authority alone but keeps configuration', () => {
@@ -378,10 +420,10 @@ test('non-GET requests keep the stock behavior', () => {
   assert.equal(fixture.originalCalls.length, 1)
 })
 
-test('loginPage: false leaves authorizeIndex untouched', () => {
+test('loginPage: false delegates to the stock authorizeIndex', () => {
   const fixture = loginFixture({ loginPage: false })
-  assert.equal(fixture.installed, false)
-  assert.equal(fixture.connection.authorizeIndex.name, 'authorizeIndex')
+  assert.equal(fixture.installed, true)
+  assert.notEqual(fixture.connection.authorizeIndex.name, 'authorizeIndex')
   fixture.connection.authorizeIndex(fakeRequest('/'), fakeResponse())
   assert.equal(fixture.originalCalls.length, 1)
 })

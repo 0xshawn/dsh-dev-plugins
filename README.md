@@ -216,11 +216,12 @@ usage page, composer Enter rewrite, and browser control. Writes go through the
 Host configuration form, so they land in the profile patch as ordinary plugin
 config and survive restarts.
 
-Host-side switches apply when the Loader reconciles the plugin. Switches that
-change the browser half (notifications, the statistics entry, the composer
-rewrite) need a page reload; the page shows a reload banner after a write.
-Browser control is a boot-time MCP child process, so its switch needs a `dsh
-web` restart.
+Host-side switches are volatile config: the running plugin reads them live, so
+the sign-in page and the statistics route follow a change without a restart.
+Switches that change the browser half (notifications, the statistics entry, the
+composer rewrite) need a page reload; the page shows a reload banner after a
+write. Browser control is a boot-time MCP child process, so its switch needs a
+`dsh web` restart.
 
 ### Composer: Enter inserts a line break
 
