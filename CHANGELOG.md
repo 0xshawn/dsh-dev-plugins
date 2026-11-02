@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.2 — 2026-11-02
+
+Built-in bridge token: the Chrome extension needs no pairing step.
+
+- The bridge and extension now share a fixed built-in token
+  (`dsh-dev-plugins-browser-bridge-v1`), so loading the extension is enough:
+  it connects to the bridge automatically once `dsh web` restarts, with no
+  token file to read or paste.
+- `DSH_BROWSER_BRIDGE_TOKEN` still overrides the token on the bridge side; the
+  popup gained an optional **Token override** field for matching private
+  deployments. The token file in `$DSH_HOME/browser-bridge` is no longer
+  created or read, and the randomly generated 64-hex token stored by
+  0.7.0/0.7.1 is cleared once on the next extension start. A custom hex-shaped
+  override has to be re-entered once after the upgrade.
+- The listener stays loopback-only and still validates
+  `Origin: chrome-extension://<id>`; `DSH_BROWSER_BRIDGE_EXTENSION_ID` can pin
+  the accepted extension id.
+- No change to the tools or their behaviour.
+
 ## 0.7.1 — 2026-11-02
 
 Token statistics contrast fix.
