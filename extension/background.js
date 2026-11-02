@@ -566,19 +566,29 @@ async function loadSettings() {
       if (stored.tokenMigrated !== true) {
         // One-shot upgrade cleanup: 0.7.0/0.7.1 stored a random 64-hex token
         // that cannot match the built-in one. Clear it once, remember that the
-        // migration ran, and never touch an override again.
-        if (storedToken !== '' && LEGACY_TOKEN_PATTERN.test(storedToken)) {
-          storedToken = ''
+        // migration ran, and never touch an override again. The flag is only
+        // written after a successful cleanup (or when there was nothing to
+        // clear), so a failed removal retries on the next start instead of
+        // adopting the stale token as an override.
+        let migrated = storedToken === '' || !LEGACY_TOKEN_PATTERN.test(storedToken)
+        if (!migrated) {
           try {
             await chrome.storage.local.remove(STORAGE_TOKEN)
+            storedToken = ''
+            migrated = true
           } catch {
-            /* keep going; the migration flag is what prevents a loop */
+            // Do not adopt the stale token for this run; leave it in storage so
+            // the next start retries the cleanup.
+            storedToken = ''
+            migrated = false
           }
         }
-        try {
-          await chrome.storage.local.set({ [STORAGE_TOKEN_MIGRATED]: true })
-        } catch {
-          /* a missing storage write only retries the harmless cleanup */
+        if (migrated) {
+          try {
+            await chrome.storage.local.set({ [STORAGE_TOKEN_MIGRATED]: true })
+          } catch {
+            /* the cleanup is idempotent; the next load retries the flag write */
+          }
         }
       }
       state.token = storedToken !== '' ? storedToken : DEFAULT_TOKEN

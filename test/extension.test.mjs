@@ -268,6 +268,29 @@ test('a legacy random pairing token is cleared once during the upgrade', async (
   assert.equal(overrideSocket.url.endsWith(`?token=${'b'.repeat(64)}`), true)
 })
 
+test('a failed legacy cleanup retries instead of adopting the stale token', async () => {
+  const originalRemove = chrome.storage.local.remove
+  chrome.storageData.set('token', 'c'.repeat(64))
+  chrome.storageData.set('port', 8790)
+  chrome.storage.local.remove = async () => {
+    throw new Error('storage unavailable')
+  }
+  try {
+    seam.resetState()
+    await seam.loadSettings()
+    assert.equal(seam.getState().usesDefaultToken, true)
+    assert.equal(chrome.storageData.get('tokenMigrated'), undefined)
+    assert.equal(chrome.storageData.get('token'), 'c'.repeat(64))
+  } finally {
+    chrome.storage.local.remove = originalRemove
+  }
+  // The retry succeeds once storage works again.
+  seam.resetState()
+  await seam.loadSettings()
+  assert.equal(chrome.storageData.has('token'), false)
+  assert.equal(chrome.storageData.get('tokenMigrated'), true)
+})
+
 test('parseServerUrl encodes the token and uses the port', () => {
   const url = seam.parseServerUrl(8791, 'a b&c')
   assert.equal(url, 'ws://127.0.0.1:8791/extension?token=a%20b%26c')
