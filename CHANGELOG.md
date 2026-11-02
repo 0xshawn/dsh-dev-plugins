@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 — 2026-11-02
+
+Token statistics contrast fix.
+
+- The time-range preset control now uses theme-defined color aliases
+  (`--dsw-alias-bg-layer-2` and `--dsw-alias-interactive-bg-active`) instead of
+  the undefined `--dsw-alias-fill-l1`/`--dsw-alias-fill-l2`, whose near-black
+  fallbacks made the labels unreadable in the light theme.
+
 ## 0.7.0 — 2026-11-02
 
 Browser control: a Chrome extension plus a local MCP bridge that exposes the

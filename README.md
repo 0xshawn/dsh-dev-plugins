@@ -172,7 +172,8 @@ lock-screen previews may expose it.
 The sidebar gains a **Token usage** entry that opens a page with:
 
 - time presets (today, last 7 days, last 30 days, all time, custom range), with
-  the day boundary taken from the browser's IANA time zone;
+  the day boundary taken from the browser's IANA time zone; the control uses
+  the active light or dark theme colors;
 - a daily bar chart of provider-billed tokens;
 - summary cards for the total plus uncached input, output, cache read, and
   cache write;
