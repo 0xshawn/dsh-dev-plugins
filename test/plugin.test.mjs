@@ -441,6 +441,24 @@ test('non-GET requests keep the stock behavior', () => {
   assert.equal(fixture.originalCalls.length, 1)
 })
 
+test('a re-applied login config updates already installed wrappers', () => {
+  const fixture = loginFixture()
+  assert.equal(fixture.installed, true)
+  try {
+    const first = fakeResponse()
+    fixture.connection.authorizeIndex(fakeRequest('/'), first)
+    assert.equal(first.status, 401)
+    assert.equal(fixture.originalCalls.length, 0)
+    installLoginPage(fixture.ctx, fixture.connection, { loginPage: false })
+    const second = fakeResponse()
+    fixture.connection.authorizeIndex(fakeRequest('/'), second)
+    assert.equal(fixture.originalCalls.length, 1)
+    assert.equal(second.status, undefined)
+  } finally {
+    delete globalThis[Symbol.for('dsh-dev-plugins/login-page-state')]
+  }
+})
+
 test('loginPage: false delegates to the stock authorizeIndex', () => {
   const fixture = loginFixture({ loginPage: false })
   assert.equal(fixture.installed, true)

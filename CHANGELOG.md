@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.2 — 2026-11-03
+
+Live login-page switch survives a Host plugin reload.
+
+- The launch-token form wrapper now reads a shared per-process switch instead of
+  the plugin instance's captured config. A Host package reload can leave an
+  earlier `authorizeIndex` wrapper installed; every wrapper now follows the
+  current settings value, so turning **Token sign-in page** off takes effect even
+  after a reload.
+- The `loader/volatile-update` handler refreshes that switch together with the
+  derived browser-control state.
+
 ## 0.8.1 — 2026-11-02
 
 Notification click opens the notified Session.
