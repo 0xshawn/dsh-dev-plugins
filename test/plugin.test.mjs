@@ -501,6 +501,39 @@ test('loginPage: false delegates to the stock authorizeIndex', () => {
   assert.equal(fixture.originalCalls.length, 1)
 })
 
+test('a volatile config update refreshes the live login switch', () => {
+  const live = { loginPage: true }
+  const config = {
+    launchToken: '',
+    loginPage: { get: () => live.loginPage },
+    loopback: { get: () => true },
+    notifications: { get: () => true },
+    statsPage: { get: () => true },
+    composerNewline: { get: () => true },
+    browserControl: { get: () => true },
+  }
+  let calls = 0
+  const connection = {
+    browserAuth: { launchToken: 'token', isAuthenticated: () => false },
+    isTrusted: () => true,
+    authorizeIndex: () => {
+      calls += 1
+    },
+  }
+  const ctx = fakeContext(connection)
+  ctx.effect = (callback) => callback()
+  try {
+    apply(ctx, config)
+    assert.notEqual(connection.authorizeIndex.name, 'authorizeIndex')
+    live.loginPage = false
+    ctx.emit('loader/volatile-update', [])
+    connection.authorizeIndex(fakeRequest('/'), fakeResponse())
+    assert.equal(calls, 1)
+  } finally {
+    delete globalThis[Symbol.for('dsh-dev-plugins/login-page-state')]
+  }
+})
+
 test('plugin disposal restores the stock authorizeIndex', () => {
   const fixture = loginFixture()
   const installed = fixture.connection.authorizeIndex

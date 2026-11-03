@@ -219,7 +219,7 @@ config and survive restarts.
 
 Host-side switches are volatile config: the running plugin reads them live, so
 the sign-in page and the statistics route follow a change without a restart,
-including after a client hot update or a Host plugin reload.
+including after a Host plugin reload.
 Switches that change the browser half (notifications, the statistics entry, the
 composer rewrite) need a page reload; the page shows a reload banner after a
 write. Browser control is a boot-time MCP child process, so its switch needs a
