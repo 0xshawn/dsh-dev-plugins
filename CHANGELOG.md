@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.2 — 2026-11-03
+
+Live login-page switch survives a Host plugin reload.
+
+- The launch-token form wrapper now reads a shared per-process switch instead of
+  the plugin instance's captured config. Reloads of this release reuse one
+  tagged wrapper and refcount its disposal, so turning **Token sign-in page**
+  off takes effect without stacking another wrapper. An untouched wrapper left
+  in process memory by 0.8.1 or earlier is not recognised, so upgrading across
+  that boundary still clears it with the required `dsh web` restart.
+- The `loader/volatile-update` handler refreshes that switch together with the
+  derived browser-control state, and the TLS flag for the auth cookie check is
+  refreshed when the `webServer` service resolves.
+
 ## 0.8.1 — 2026-11-02
 
 Notification click opens the notified Session.
