@@ -459,6 +459,40 @@ test('a re-applied login config updates already installed wrappers', () => {
   }
 })
 
+test('a volatile login config updates the installed wrapper without stacking', () => {
+  const fixture = loginFixture()
+  const installed = fixture.connection.authorizeIndex
+  try {
+    const live = { loginPage: true }
+    const config = { loginPage: { get: () => live.loginPage } }
+    installLoginPage(fixture.ctx, fixture.connection, config)
+    assert.equal(fixture.connection.authorizeIndex, installed)
+    live.loginPage = false
+    installLoginPage(fixture.ctx, fixture.connection, config)
+    assert.equal(fixture.connection.authorizeIndex, installed)
+    fixture.connection.authorizeIndex(fakeRequest('/'), fakeResponse())
+    assert.equal(fixture.originalCalls.length, 1)
+  } finally {
+    delete globalThis[Symbol.for('dsh-dev-plugins/login-page-state')]
+  }
+})
+
+test('the login wrapper restores the stock handler after the last disposal', () => {
+  const fixture = loginFixture()
+  const wrapper = fixture.connection.authorizeIndex
+  const stock = wrapper[Symbol.for('dsh-dev-plugins/login-page-original')]
+  try {
+    installLoginPage(fixture.ctx, fixture.connection, { loginPage: true })
+    assert.equal(fixture.disposers.length, 2)
+    fixture.disposers[0]()
+    assert.equal(fixture.connection.authorizeIndex, wrapper)
+    fixture.disposers[1]()
+    assert.equal(fixture.connection.authorizeIndex, stock)
+  } finally {
+    delete globalThis[Symbol.for('dsh-dev-plugins/login-page-state')]
+  }
+})
+
 test('loginPage: false delegates to the stock authorizeIndex', () => {
   const fixture = loginFixture({ loginPage: false })
   assert.equal(fixture.installed, true)
