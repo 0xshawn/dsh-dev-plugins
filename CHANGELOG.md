@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.3 — 2026-11-07
+
+Compatibility with the deployed dsh 0.2.2-rc.1 release.
+
+- Browser notifications also suppress rows whose client session-list entry
+  carries `parentId`. The client list projects the raw `parentSessionId` field
+  onto rows as `parentId`, but the filter only checked the raw name, so a child
+  row could notify as a finished top-level Session. Both shapes are accepted.
+- Compatibility docs record dsh `0.2.2-rc.1` as tested for both halves on the
+  three deployed endpoints (login and settings flows on the workstation origin
+  and its proxy). The declared `engines.dsh` range is unchanged; dsh 0.2.2
+  evaluates it with prereleases participating, so `0.2.2-rc.1` passes the
+  compatibility gate without a version exemption (install and boot share that
+  evaluator).
+- The bundle patch comment now records that 0.2.1 and later publish only
+  `webStartup`, and that the trusted-host expression relies on `ctx.get`
+  returning `undefined` for the absent `webRuntime` service.
+
 ## 0.8.2 — 2026-11-03
 
 Live login-page switch survives a Host plugin reload.

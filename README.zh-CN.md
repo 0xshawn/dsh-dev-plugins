@@ -246,8 +246,8 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 ## 兼容性
 
-- 已在 dsh `0.2.1-rc.2`、`0.2.1-rc.3` 与 `0.2.0-rc.2` 的 Web profile 上验证。
-- 声明范围：`engines.dsh >=0.2.0-0 <0.3.0-0`。dsh 0.1.x 不受支持，也未测试。
+- 已在 dsh `0.2.2-rc.1`（三个部署入口的两半均验证；登录与设置流程在本机入口及其 `:9443` 代理上验证）、`0.2.1-rc.2`、`0.2.1-rc.3` 与 `0.2.0-rc.2` 的 Web profile 上验证。
+- 声明范围：`engines.dsh >=0.2.0-0 <0.3.0-0`。dsh 0.1.x 不受支持，也未测试；dsh 0.3.x 在插件完成验证前保持在范围之外。dsh 0.2.2 的版本门禁按 prerelease 参与比较，因此 `0.2.2-rc.1` 无需版本豁免即可通过兼容性检查（安装与启动共用同一判定器）。
 - dsh 0.2.0 中 profile 级通配绑定（`webserver.host: 0.0.0.0`）会推导出 LAN 权威；本 patch 会保留它们，因此打印出的 LAN URL 无需额外 trusted-host 即可使用。
 - 插件行仅适用于 Web profile；没有 `connection` 服务的 profile 中该行保持 inactive，安装也不会生效。
 - `npm install -g @deepseek-ai/dsh@<version>` 升级 dsh 不会改动 profile，插件继续可用；升级后重启 `dsh web` 即加载新版本。
@@ -256,7 +256,7 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 - patch 按 `$DSH_HOME` 与 `$DSH_PROFILE` 解析 `bridge/index.js`；若启动 `dsh web` 时没有这两个变量，则回退到 `~/.dsh` 和 `web` profile。用其他 profile 名时需要设置这两个变量（上游 CLI 会导出它们）。
 - 输入框回车改写依赖 dsh 内部 DOM 标记（`[data-composer-card]`、`[data-lexical-editor="true"]`、`[data-trigger-menu]`）。若未来 dsh 改名，监听器找不到输入框便静默失效，恢复上游“回车发送”，不会破坏页面。
 - 登录表单包装 `connection.authorizeIndex` 并读取 `browserAuth.isAuthenticated`。若未来 dsh 移除二者，表单会被跳过，裸地址恢复上游纯文本 `401`，插件其余功能继续工作。
-- 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。
+- 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。客户端会话列表会把原始 `parentSessionId` 字段投影到行上的 `parentId`；两种形状都会抑制带父链接的行，因此子会话行不会再发通知。
 - Token 统计依赖 `ctx.sessionQuery`（`listSessions` 与 `readSession`）、`ctx.workspaceRegistry`（可选；缺失时回退为按目录分组）以及 `ctx.webServer.register`。会话查询服务缺失时，数据路由返回 `503`，页面显示加载错误。
 - 固定动作只在启动时执行一次。宿主插件热重载（HMR）可能用 dsh 缓存的每进程令牌重建 Connection 服务，且不会重新打印启动 URL；更换令牌或升级 dsh 后请重启 `dsh web`。
 

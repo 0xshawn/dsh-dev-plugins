@@ -377,8 +377,8 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 
 ## Compatibility
 
-- Tested against dsh `0.2.1-rc.2`, `0.2.1-rc.3`, and `0.2.0-rc.2` (Web profile).
-- Declared range: `engines.dsh >=0.2.0-0 <0.3.0-0`. dsh 0.1.x is not supported or tested.
+- Tested against dsh `0.2.2-rc.1` (both halves on all three deployed endpoints; the login and settings flows were exercised on the workstation origin and its `:9443` proxy), `0.2.1-rc.2`, `0.2.1-rc.3`, and `0.2.0-rc.2` (Web profile).
+- Declared range: `engines.dsh >=0.2.0-0 <0.3.0-0`. dsh 0.1.x is not supported or tested, and dsh 0.3.x stays outside the range until the plugin is verified against it. dsh 0.2.2 evaluates the range with prereleases participating, so `0.2.2-rc.1` passes the compatibility gate without a version exemption (install and boot share that evaluator).
 - On dsh 0.2.0 a profile-level wildcard bind (`webserver.host: 0.0.0.0`) derives LAN authorities; the patch preserves them, so the printed LAN URL works without extra trusted-host entries.
 - The plugin row is Web-profile only; in a profile without a `connection` service the row stays inactive, so installing it there achieves nothing.
 - `npm install -g @deepseek-ai/dsh@<version>` replaces the dsh install but not the profile: the plugin keeps working after a dsh upgrade. Restart `dsh web` to load a new dsh version.
@@ -387,7 +387,7 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - The patch resolves `bridge/index.js` from `$DSH_HOME` and `$DSH_PROFILE`; a host that launches `dsh web` without those environment variables falls back to `~/.dsh` and the `web` profile. A different profile name therefore needs the variable set (the stock CLI exports both).
 - The composer Enter rewrite depends on dsh-internal DOM markers (`[data-composer-card]`, `[data-lexical-editor="true"]`, `[data-trigger-menu]`). If a future dsh release renames them, the listener finds no composer and silently no-ops, restoring stock Enter-sends; it never breaks the page.
 - The login form wraps `connection.authorizeIndex` and reads `browserAuth.isAuthenticated`. If a future dsh version removes either, the form is skipped and the bare URL answers the stock plain `401`; the rest of the plugin keeps working.
-- Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription.
+- Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription. the client session list projects the raw `parentSessionId` field onto rows as `parentId`; both shapes suppress a row that carries a parent link, so subagent rows stop notifying.
 - Token statistics need `ctx.sessionQuery` (`listSessions` and `readSession`), `ctx.workspaceRegistry` (optional; an absent registry falls back to per-directory grouping), and `ctx.webServer.register`. When the session query service is missing, the data route answers `503` and the panel shows its load error.
 - The pin runs once at startup. A host-plugin reload (HMR) can rebuild the Connection service from dsh's cached per-process token and will not reprint the startup URL; restart `dsh web` after changing the token or the dsh version.
 

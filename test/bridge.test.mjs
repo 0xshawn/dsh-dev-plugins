@@ -137,7 +137,7 @@ test('healthy pair: token, origin, hello/welcome, and a targets round-trip', asy
 
   const { socket, welcome } = await connectFakeExtension(relay)
   t.after(() => socket.terminate())
-  assert.deepEqual(welcome, { type: 'welcome', protocol: 1, bridgeVersion: '0.8.2' })
+  assert.deepEqual(welcome, { type: 'welcome', protocol: 1, bridgeVersion: '0.8.3' })
   assert.equal(relay.connected, true)
 
   const result = await relay.call('targets')
