@@ -220,7 +220,7 @@ test('an unlisted session is not guessed into a notification', async () => {
   assert.deepEqual(sent, [])
 })
 
-test('a team subagent row is skipped by origin/depth without parentSessionId', async () => {
+test('a team subagent row is skipped by origin/depth without a parent link', async () => {
   const client = await loadClientBundle()
   const sent = []
   const sessions = {
@@ -264,7 +264,17 @@ test('a subagent absent from the session list is still skipped', async () => {
   assert.deepEqual(sent, [])
 })
 
-test('listed subagent and removed sessions are skipped', async () => {
+test('a list row with a projected parentId link is skipped like a subagent', async () => {
+  const client = await loadClientBundle()
+  const sent = []
+  const sessions = { child: row('Managed child', { parentId: 's1' }) }
+  const previous = new Map([['child', { running: true, pendingInteraction: undefined }]])
+  const next = new Map([['child', { running: false, pendingInteraction: undefined }]])
+  client.__test.handleStatusChange(previous, next, sessionContext(sessions), (message) => sent.push(message))
+  assert.deepEqual(sent, [])
+})
+
+test('a raw parentSessionId row and removed sessions are skipped', async () => {
   const client = await loadClientBundle()
   const sent = []
   const sessions = {

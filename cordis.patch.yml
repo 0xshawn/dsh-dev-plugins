@@ -6,10 +6,12 @@
 #    authorities from DSH_DEV_PLUGINS_TRUSTED_HOSTS (comma-separated bare
 #    `host` or `host:port` values), so a proxy/tunnel deployment can declare its
 #    browser-facing authority in the service environment instead of the command
-#    line. `webRuntime` (0.2.0) already contains the bind-derived LAN literals
-#    and the invocation's --trusted-host values, so it must win when present:
-#    0.2.0 provides both services, and preferring `webStartup` there would drop
-#    the LAN authorities. `webStartup` (0.2.1) is the fallback.
+#    line. `webRuntime` was only published by dsh 0.2.0; 0.2.1 and later publish
+#    only `webStartup`, so `ctx.get('webRuntime')` returns undefined there and the
+#    `??` fallback selects `webStartup`. The expression must never dereference
+#    that lookup before the `??`: a missing service stays undefined instead of
+#    throwing. Preferring `webRuntime` where it exists (0.2.0) keeps the
+#    bind-derived LAN authorities that service already carries.
 - id: connection
   config:
     trustedHosts: !!js "((ctx.get('webRuntime') ?? ctx.get('webStartup'))?.trustedHosts ?? []).concat((process.env.DSH_DEV_PLUGINS_TRUSTED_HOSTS ?? '').split(',').map((value) => value.trim()).filter((value) => value.length > 0))"
