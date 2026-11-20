@@ -727,16 +727,12 @@ test('the recent-TPS reading averages settled steps inside the trailing window',
   // The Host projection carries the same samples; the fold must match.
   const samples = nodes
     .filter((node) => node.kind === 'assistant' && typeof node.usage?.outputTokens === 'number')
-    .map((node) => ({
-      firstTokenTime: node.timing.firstTokenTime,
-      completedTime: node.timing.completedTime,
-      outputTokens: node.usage.outputTokens,
-    }))
+    .map((node) => [node.timing.firstTokenTime, node.timing.completedTime, node.usage.outputTokens])
   assert.equal(client.__test.recentTpsFromSamples(samples, now), 70)
   assert.equal(client.__test.recentTpsFromSamples([], now), null)
   assert.equal(client.__test.recentTpsFromSamples(undefined, now), null)
   assert.equal(
-    client.__test.recentTpsFromSamples([{ firstTokenTime: now - 10_000, completedTime: now - 5_000 }], now),
+    client.__test.recentTpsFromSamples([[now - 10_000, now - 5_000]], now),
     null,
   )
   assert.equal(client.__test.recentTpsReading(nodes, now, 1_000), null)
@@ -835,7 +831,7 @@ test('the recent-TPS pill renders its reading and hides without one', async () =
     const projected = component({
       useChat: (selector) => selector({ legacy: { nodes: [{ kind: 'assistant' }] } }),
       useProjection: (key) => (key === 'devPluginsRecentTps'
-        ? { samples: [{ firstTokenTime: now - 5_000, completedTime: now - 1_000, outputTokens: 100 }] }
+        ? { samples: [[now - 5_000, now - 1_000, 100]] }
         : undefined),
     })
     const projectedTexts = []

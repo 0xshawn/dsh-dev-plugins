@@ -232,9 +232,11 @@ The samples come from a host-side session projection (`devPluginsRecentTps`)
 that keeps the first-token time of every settled step, because the browser's
 paged Chat window drops the streaming events and reports `firstTokenTime: null`
 for older history. A retried step keeps the first token its earliest attempt
-streamed, and a forked Session skips its parent's inherited prefix. The unit is
-registered once at boot, so the settings switch only controls the browser
-reading. When the Host half predates the projection (a hot-swapped client), the
+streamed, and a forked Session skips its parent's inherited prefix. Samples travel as compact
+`[first token, message time, output tokens]` triples, capped at 256 and
+re-clipped relative to the newest sample, so the wire payload stays bounded.
+The unit is registered once at boot, so the settings switch only controls the
+browser reading. When the Host half predates the projection (a hot-swapped client), the
 client falls back to the Chat nodes it already has; that fallback can stay
 empty for paged history.
 

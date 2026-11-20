@@ -73,7 +73,7 @@ test('the projection keeps one sample per settled step with token usage', () => 
     // Completed at the first token: no decode span.
     message(8_000, [chunk(8_000, { type: 'text-delta', text: 'c' })], 10),
   ])
-  assert.deepEqual(state.samples, [{ firstTokenTime: 2_000, completedTime: 5_000, outputTokens: 100 }])
+  assert.deepEqual(state.samples, [[2_000, 5_000, 100]])
   assert.equal(recentTpsProjection.apply(state, { type: 'tool/call', time: 9_000, data: { callId: 'c' } }), state)
 })
 
@@ -90,7 +90,7 @@ test('a retried attempt keeps its earlier first token', () => {
     // The assembled message belongs to the retry and starts much later.
     message(9_000, [chunk(8_000, { type: 'text-delta', text: 'b' })], 90, 2),
   ])
-  assert.deepEqual(state.samples, [{ firstTokenTime: 1_500, completedTime: 9_000, outputTokens: 90 }])
+  assert.deepEqual(state.samples, [[1_500, 9_000, 90]])
   assert.equal(state.open, null)
 })
 
@@ -98,7 +98,7 @@ test('fork-inherited events are skipped', () => {
   const parent = message(5_000, [chunk(2_000, { type: 'text-delta', text: 'parent' })], 70, 3)
   const own = message(9_000, [chunk(8_000, { type: 'text-delta', text: 'own' })], 20, 12)
   const state = fold([parent, own], recentTpsProjection.init({}, 10))
-  assert.deepEqual(state.samples, [{ firstTokenTime: 8_000, completedTime: 9_000, outputTokens: 20 }])
+  assert.deepEqual(state.samples, [[8_000, 9_000, 20]])
 })
 
 test('the projection prunes the retention window and caps the sample list', () => {
@@ -109,7 +109,7 @@ test('the projection prunes the retention window and caps the sample list', () =
   ]
   const state = fold(events)
   assert.equal(state.samples.length, 1)
-  assert.equal(state.samples[0].outputTokens, 2)
+  assert.equal(state.samples[0][2], 2)
 
   // One more settled step than the cap, all inside the retention window.
   const start = 1_000_000
@@ -122,20 +122,21 @@ test('the projection prunes the retention window and caps the sample list', () =
 })
 
 test('the wire view reuses its reference while the samples are unchanged', () => {
-  const samples = [{ firstTokenTime: 1, completedTime: 2, outputTokens: 3 }]
+  const samples = [[1, 2, 3]]
   assert.equal(recentTpsProjection.wire.view({ samples }), recentTpsProjection.wire.view({ samples }))
   const empty = []
   assert.equal(recentTpsProjection.wire.view({ samples: empty }), recentTpsProjection.wire.view({ samples: empty }))
   assert.notEqual(recentTpsProjection.wire.view({ samples: empty }), recentTpsProjection.wire.view({ samples }))
   // The view re-clips stale samples relative to the newest one.
-  const fresh = { firstTokenTime: 1_000, completedTime: 2_000, outputTokens: 4 }
-  const staleCompleted = fresh.completedTime - RECENT_TPS_RETENTION_MS - 1
-  const stale = { firstTokenTime: staleCompleted - 1, completedTime: staleCompleted, outputTokens: 3 }
+  const fresh = [1_000, 2_000, 4]
+  const staleCompleted = fresh[1] - RECENT_TPS_RETENTION_MS - 1
+  const stale = [staleCompleted - 1, staleCompleted, 3]
   assert.deepEqual(recentTpsProjection.wire.view({ samples: [stale, fresh] }), { samples: [fresh] })
   assert.equal(recentTpsProjection.wire.summary, false)
   assert.equal(recentTpsProjection.key, RECENT_TPS_PROJECTION_KEY)
   assert.equal(recentTpsProjection.wire.viewSchema.safeParse({ samples }).success, true)
-  assert.equal(recentTpsProjection.wire.viewSchema.safeParse({ samples: [{ firstTokenTime: -1 }] }).success, false)
+  assert.equal(recentTpsProjection.wire.viewSchema.safeParse({ samples: [[-1, 2, 3]] }).success, false)
+  assert.equal(recentTpsProjection.stateVersion, 2)
   assert.equal(recentTpsProjection.stateSchema.safeParse({ samples, extra: true }).success, false)
 })
 
