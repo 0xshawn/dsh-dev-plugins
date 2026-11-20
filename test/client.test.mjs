@@ -724,6 +724,21 @@ test('the recent-TPS reading averages settled steps inside the trailing window',
     { kind: 'assistant', timing: { firstTokenTime: now - 20_000, completedTime: now - 10_000 }, usage: { outputTokens: 300 } },
   ]
   assert.ok(Math.abs(client.__test.recentTpsReading(overlapping, now) - 10.8) < 1e-9)
+  // The Host projection carries the same samples; the fold must match.
+  const samples = nodes
+    .filter((node) => node.kind === 'assistant' && typeof node.usage?.outputTokens === 'number')
+    .map((node) => ({
+      firstTokenTime: node.timing.firstTokenTime,
+      completedTime: node.timing.completedTime,
+      outputTokens: node.usage.outputTokens,
+    }))
+  assert.equal(client.__test.recentTpsFromSamples(samples, now), 70)
+  assert.equal(client.__test.recentTpsFromSamples([], now), null)
+  assert.equal(client.__test.recentTpsFromSamples(undefined, now), null)
+  assert.equal(
+    client.__test.recentTpsFromSamples([{ firstTokenTime: now - 10_000, completedTime: now - 5_000 }], now),
+    null,
+  )
   assert.equal(client.__test.recentTpsReading(nodes, now, 1_000), null)
   assert.equal(client.__test.recentTpsReading([], now), null)
   assert.equal(client.__test.recentTpsReading(undefined, now), null)
@@ -816,6 +831,21 @@ test('the recent-TPS pill renders its reading and hides without one', async () =
     }
     walk(tree)
     assert.ok(texts.includes('last 5 min 25 tok/s'))
+    // The Host projection wins even when the paged Chat nodes carry no timing.
+    const projected = component({
+      useChat: (selector) => selector({ legacy: { nodes: [{ kind: 'assistant' }] } }),
+      useProjection: (key) => (key === 'devPluginsRecentTps'
+        ? { samples: [{ firstTokenTime: now - 5_000, completedTime: now - 1_000, outputTokens: 100 }] }
+        : undefined),
+    })
+    const projectedTexts = []
+    const walkProjected = (node) => {
+      if (typeof node === 'string') projectedTexts.push(node)
+      else if (Array.isArray(node)) node.forEach(walkProjected)
+      else if (node !== null && typeof node === 'object') (node.children ?? []).forEach(walkProjected)
+    }
+    walkProjected(projected)
+    assert.ok(projectedTexts.includes('last 5 min 25 tok/s'))
     assert.equal(component({ useChat: (selector) => selector({ legacy: { nodes: [] } }) }), null)
     assert.equal(component({ useChat: (selector) => selector(undefined) }), null)
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
