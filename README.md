@@ -220,11 +220,13 @@ reading of the last five minutes of output speed (a clock icon and
 with the same number, so closing the dialog leaves the value visible under the
 input box.
 
-The reading folds settled assistant steps whose assembled message landed inside
-the trailing five-minute window, and divides their provider-reported output
-tokens by their decode time (first token to message). Steps without provider
-usage do not count, and a Session with no step in the window shows no pill. The
-window re-evaluates every five seconds.
+The reading clips each settled step's decode span (first token to message) to
+the trailing five-minute window and prorates its provider-reported output tokens
+by the overlap, then divides the summed tokens by the summed time. A long step
+that started before the window therefore contributes only its in-window share,
+and each step keeps the rate it shows on its own. Steps without provider usage
+do not count, and a Session with no step in the window shows no pill. The window
+re-evaluates every five seconds.
 
 The dialog row is appended to the stock row list
 (`dl[data-session-stats-details]`) and borrows that list's styles, so it matches
@@ -407,6 +409,9 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 
 ## Compatibility
 
+- The recent-output-speed pill and its dialog row were checked against dsh
+  `0.2.2-rc.4` (the version pinned by `hapi-deployment`) in the live Web UI; the
+  slot registration and switch wiring are covered by `npm test`.
 - Tested against dsh `0.2.2-rc.1` (both halves on all three deployed endpoints; the login and settings flows were exercised on the workstation origin and its `:9443` proxy), `0.2.1-rc.2`, `0.2.1-rc.3`, and `0.2.0-rc.2` (Web profile).
 - Declared range: `engines.dsh >=0.2.0-0 <0.3.0-0`. dsh 0.1.x is not supported or tested, and dsh 0.3.x stays outside the range until the plugin is verified against it. dsh 0.2.2 evaluates the range with prereleases participating, so `0.2.2-rc.1` passes the compatibility gate without a version exemption (install and boot share that evaluator).
 - On dsh 0.2.0 a profile-level wildcard bind (`webserver.host: 0.0.0.0`) derives LAN authorities; the patch preserves them, so the printed LAN URL works without extra trusted-host entries.

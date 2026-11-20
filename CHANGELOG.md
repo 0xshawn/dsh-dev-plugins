@@ -11,10 +11,10 @@ Recent output speed, under the composer and inside session statistics.
   its `dl[data-session-stats-details]` list and borrowing that list's styles, so
   closing the dialog leaves the value visible under the input box. A body-level
   MutationObserver plus a five-second tick re-appends and updates the row.
-- The reading folds assistant steps whose message landed inside the trailing
-  five-minute window: provider output tokens divided by decode time (first token
-  to message). Steps without provider usage are skipped, and a window with no
-  step shows no pill.
+- The reading clips each settled step's decode span to the trailing five-minute
+  window, prorates its provider output tokens by the overlap, and divides the
+  summed tokens by the summed time. Steps without provider usage are skipped,
+  and a window with no step shows no pill.
 - New `recentTps` switch, injected as `__DSH_DEV_PLUGINS_RECENT_TPS__`, with a
   Settings → **Dev plugins** row; defaults to on. Both READMEs document the
   feature, and the compatibility notes record the dialog-marker dependency.

@@ -717,6 +717,13 @@ test('the recent-TPS reading averages settled steps inside the trailing window',
   ]
   assert.equal(client.__test.RECENT_TPS_WINDOW_MS, 300_000)
   assert.equal(client.__test.recentTpsReading(nodes, now), 70)
+  // A step that started before the window contributes only its overlap:
+  // 10 tok/s for 240s plus 30 tok/s for 10s.
+  const overlapping = [
+    { kind: 'assistant', timing: { firstTokenTime: now - 600_000, completedTime: now - 60_000 }, usage: { outputTokens: 5_400 } },
+    { kind: 'assistant', timing: { firstTokenTime: now - 20_000, completedTime: now - 10_000 }, usage: { outputTokens: 300 } },
+  ]
+  assert.ok(Math.abs(client.__test.recentTpsReading(overlapping, now) - 10.8) < 1e-9)
   assert.equal(client.__test.recentTpsReading(nodes, now, 1_000), null)
   assert.equal(client.__test.recentTpsReading([], now), null)
   assert.equal(client.__test.recentTpsReading(undefined, now), null)
@@ -826,16 +833,20 @@ function fakeElement(tagName) {
     children: [],
     textContent: '',
     parent: null,
+    get lastElementChild() {
+      return this.children[this.children.length - 1] ?? null
+    },
     querySelector(selector) {
       const match = /^(dt|dd)\[data-dsh-recent-tps\]$/u.exec(selector)
       if (match === null) return null
-      return findMarked(this, match[1]) ?? null
+      return findMarked(this, match[1], true) ?? null
     },
     setAttribute(name, value) {
       this.attrs.set(name, value)
     },
     append(...children) {
       for (const child of children) {
+        if (child.parent !== null) child.parent.children = child.parent.children.filter((node) => node !== child)
         child.parent = this
         this.children.push(child)
       }
@@ -848,11 +859,11 @@ function fakeElement(tagName) {
   }
 }
 
-/** Find the first descendant matching a tag name and plugin marker. */
-function findMarked(node, tagName) {
+/** Find the first descendant matching a tag name, optionally only the plugin row. */
+function findMarked(node, tagName, markedOnly = false) {
   for (const child of node.children ?? []) {
-    if (child.tagName === tagName) return child
-    const nested = findMarked(child, tagName)
+    if (child.tagName === tagName && (markedOnly === false || child.attrs.has('data-dsh-recent-tps'))) return child
+    const nested = findMarked(child, tagName, markedOnly)
     if (nested !== undefined) return nested
   }
   return undefined
@@ -923,8 +934,8 @@ test('the recent-TPS row is appended to, updated in, and removed from the statis
     createElement: (tagName) => fakeElement(tagName),
     querySelector(selector) {
       if (selector === 'dl[data-session-stats-details]') return list.available ? list : null
-      if (selector === 'dt[data-dsh-recent-tps]') return findMarked(list, 'dt') ?? null
-      if (selector === 'dd[data-dsh-recent-tps]') return findMarked(list, 'dd') ?? null
+      if (selector === 'dt[data-dsh-recent-tps]') return findMarked(list, 'dt', true) ?? null
+      if (selector === 'dd[data-dsh-recent-tps]') return findMarked(list, 'dd', true) ?? null
       return null
     },
   }
@@ -954,38 +965,60 @@ test('the recent-TPS row is appended to, updated in, and removed from the statis
   let dispose
   try {
     dispose = client.__test.installRecentTpsDialogRow(t, document, FakeObserver)
-    assert.equal(observers.length, 1)
+    // One observer for the dialog appearing on the body, one for its row list.
+    assert.equal(observers.length, 2)
     assert.equal(observers[0].target, body)
     assert.deepEqual(observers[0].options, { childList: true })
-    const term = findMarked(list, 'dt')
-    const detail = findMarked(list, 'dd')
+    assert.equal(observers[1].target, list)
+    assert.deepEqual(observers[1].options, { childList: true })
+    const term = findMarked(list, 'dt', true)
+    const detail = findMarked(list, 'dd', true)
     assert.equal(term?.textContent, 'row')
     assert.equal(detail?.textContent, '70 tok/s')
     assert.equal(term?.attrs.get('data-dsh-recent-tps'), 'label')
 
     client.__test.publishRecentTps(9.94)
     observers[0].fire()
-    assert.equal(findMarked(list, 'dd')?.textContent, '9.9 tok/s')
+    assert.equal(findMarked(list, 'dd', true)?.textContent, '9.9 tok/s')
+
+    // A settled stock row lands after ours; the list observer moves it back.
+    const settled = fakeElement('dd')
+    settled.textContent = 'stock row'
+    list.append(settled)
+    observers[1].fire()
+    assert.equal(list.lastElementChild, findMarked(list, 'dd', true))
+
+    // A React remount drops the row; the list observer re-appends it.
+    list.children = []
+    observers[1].fire()
+    assert.equal(findMarked(list, 'dd', true)?.textContent, '9.9 tok/s')
 
     client.__test.publishRecentTps(null)
-    observers[0].fire()
-    assert.equal(findMarked(list, 'dt'), undefined)
-    assert.equal(findMarked(list, 'dd'), undefined)
+    observers[1].fire()
+    assert.equal(findMarked(list, 'dt', true), undefined)
+    assert.equal(findMarked(list, 'dd', true), undefined)
 
     client.__test.publishRecentTps(12)
-    observers[0].fire()
-    assert.equal(findMarked(list, 'dd')?.textContent, '12 tok/s')
+    observers[1].fire()
+    assert.equal(findMarked(list, 'dd', true)?.textContent, '12 tok/s')
 
-    // A dialog remount drops the row; the next sync re-appends it.
-    list.children = []
+    // Closing the dialog disconnects its list observer; reopening follows the new list.
+    list.available = false
     observers[0].fire()
-    assert.equal(findMarked(list, 'dd')?.textContent, '12 tok/s')
+    assert.equal(observers[1].disconnected, true)
+    list.available = true
+    observers[0].fire()
+    assert.equal(observers.length, 3)
+    assert.equal(observers[2].target, list)
+    assert.equal(findMarked(list, 'dd', true)?.textContent, '12 tok/s')
   } finally {
     dispose?.()
     client.__test.publishRecentTps(null)
   }
   assert.equal(observers[0].disconnected, true)
-  assert.equal(findMarked(list, 'dt'), undefined)
+  assert.equal(observers[1].disconnected, true)
+  assert.equal(observers[2].disconnected, true)
+  assert.equal(findMarked(list, 'dt', true), undefined)
 })
 
 test('the settings section exposes one switch per bundle feature', async () => {

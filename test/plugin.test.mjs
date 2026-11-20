@@ -209,6 +209,7 @@ test('a volatile settings edit refreshes the derived feature state and page glob
   apply(ctx, { ...config, launchToken: '' })
   live.browserControl = false
   live.composerNewline = false
+  live.recentTps = false
   ctx.emit('loader/volatile-update', [['browserControl']])
   assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
     browserControl: false,
@@ -217,6 +218,8 @@ test('a volatile settings edit refreshes the derived feature state and page glob
   ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
   const composer = table.find((row) => row.name === '__DSH_DEV_PLUGINS_COMPOSER__')
   assert.deepEqual(composer?.value, { enabled: false })
+  const recent = table.find((row) => row.name === '__DSH_DEV_PLUGINS_RECENT_TPS__')
+  assert.deepEqual(recent?.value, { enabled: false })
 })
 
 test('apply with loopback=false leaves the page authority alone but keeps configuration', () => {
