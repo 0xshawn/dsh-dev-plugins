@@ -1,6 +1,6 @@
 {
   "name": "dsh-dev-plugins",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Public DeepSeek Harness (dsh) dev plugins: non-localhost Web UI serving, browser notifications, workspace token statistics, a recent output speed reading, browser control through a Chrome extension, and a newline-on-Enter composer, without patching the installed dsh.",
   "keywords": [
     "dsh",

@@ -155,6 +155,8 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 读数把每个已结算 step 的解码区间（首个 token 到消息完成）裁剪到最近 5 分钟窗口，按重叠比例折算它的 provider 输出 token，再把 token 总数除以时间总数。因此在窗口前就开始的长 step 只贡献窗口内的那部分，每个 step 仍保持它自身显示的速度。没有 usage 的 step 不计；窗口内没有 step 时不显示胶囊。窗口固定 5 分钟，页面每 5 秒重新计算一次。
 
+样本来自宿主侧的 `devPluginsRecentTps` 会话投影：它保留每个已结算 step 的首 token 时间，因为浏览器分页后的 Chat 窗口会丢掉流式事件，较早历史的 `firstTokenTime` 为 null。重试过的 step 沿用最早 attempt 的首 token；fork 会话会跳过父会话继承来的前缀。样本以紧凑的 `[首 token, 消息时间, 输出 token]` 三元组传输，上限 256 条，并按最新样本重新裁剪，因此 wire 负载有界。该投影在启动时注册一次，设置页开关只控制浏览器端是否显示。宿主半边没有该投影（例如只热更新了客户端）时，客户端回退到已有的 Chat 节点；该回退在分页历史里可能一直为空。
+
 这一行追加在官方弹窗的行列表（`dl[data-session-stats-details]`）里，并沿用该列表的样式，所以外观与其它行一致、跟随 dsh 主题。设置 `recentTps: false`（或使用设置页开关）可同时去掉胶囊和这一行。
 
 ### 设置页
@@ -254,7 +256,7 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 7. **输入框回车 —— 客户端捕获监听。** 客户端半边在页面 document 上安装一个捕获阶段的 `keydown` 监听器。位于聊天输入框 Lexical 编辑器内（`[data-composer-card]` 中的 `[data-lexical-editor="true"]`）的普通回车会被取消，并重放成上游已经映射为换行的 Shift+回车；Cmd/Ctrl+回车仍然发送。斜杠命令、提及或文件菜单（`[data-trigger-menu]`）打开时，以及输入法组词期间，不执行改写。
 
-9. **近期输出速度 —— 客户端胶囊加弹窗行。** 客户端半边注册一个 `conversation.composer.dock` 条目（id `recent-tps`，order 2），从 Chat 目标的已结算节点中折叠最近 5 分钟窗口。同一读数由一个挂在 `document.body` 上的 MutationObserver 加 5 秒定时器追加到官方会话统计弹窗的 `dl[data-session-stats-details]` 列表里，追加的 `dt`/`dd` 直接沿用该列表的样式。宿主根据 `config.recentTps` 注入 `__DSH_DEV_PLUGINS_RECENT_TPS__` 开关。
+9. **近期输出速度 —— 宿主投影、客户端胶囊、弹窗行。** 宿主注册 `devPluginsRecentTps` 会话投影，从紧凑的 assistant 流里折叠每个已结算 step 的首 token、消息时间与 provider 输出 token，按事件时钟裁剪到 6 分钟，并作为 wire 投影发给浏览器。客户端半边注册一个 `conversation.composer.dock` 条目（id `recent-tps`，order 2），把这些样本裁剪到最近 5 分钟；投影缺失时回退到 Chat 目标的已结算节点。同一读数由一个挂在 `document.body` 上的 MutationObserver 加 5 秒定时器追加到官方会话统计弹窗的 `dl[data-session-stats-details]` 列表里，追加的 `dt`/`dd` 直接沿用该列表的样式。宿主根据 `config.recentTps` 注入 `__DSH_DEV_PLUGINS_RECENT_TPS__` 开关。
 
 ## 兼容性
 
@@ -267,7 +269,7 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 - 固定令牌依赖 `connection.browserAuth.launchToken` 字段。若 dsh 改变该结构，配置了令牌时插件会在启动阶段报错；取消令牌配置或升级插件即可。
 - 浏览器控制需要 Chrome 120+ 并以“加载已解压”方式装扩展；attach 期间因 `debugger` 权限会显示 Chrome 自动化提示条。无头服务器没有 Chrome，bridge 空转，工具返回 `bridge_disconnected`。
 - patch 按 `$DSH_HOME` 与 `$DSH_PROFILE` 解析 `bridge/index.js`；若启动 `dsh web` 时没有这两个变量，则回退到 `~/.dsh` 和 `web` profile。用其他 profile 名时需要设置这两个变量（上游 CLI 会导出它们）。
-- 近期输出速度的弹窗行依赖官方会话统计弹窗中的 `dl[data-session-stats-details]` 标记。若未来版本改名或改结构，输入框下方的胶囊仍然工作，只有该行静默消失。
+- 近期输出速度依赖两个 dsh 缝：`sessionProjections` 注册表（`devPluginsRecentTps` wire 单元）与官方会话统计弹窗中的 `dl[data-session-stats-details]` 标记。任一被移除时弹窗行不再出现；缺少投影还会让客户端回退到分页的 Chat 节点，而较早历史的 `firstTokenTime` 为 null，长会话的读数可能一直隐藏。
 - 输入框回车改写依赖 dsh 内部 DOM 标记（`[data-composer-card]`、`[data-lexical-editor="true"]`、`[data-trigger-menu]`）。若未来 dsh 改名，监听器找不到输入框便静默失效，恢复上游“回车发送”，不会破坏页面。
 - 登录表单包装 `connection.authorizeIndex` 并读取 `browserAuth.isAuthenticated`。若未来 dsh 移除二者，表单会被跳过，裸地址恢复上游纯文本 `401`，插件其余功能继续工作。
 - 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。客户端会话列表会把原始 `parentSessionId` 字段投影到行上的 `parentId`；两种形状都会抑制带父链接的行，因此子会话行不会再发通知。

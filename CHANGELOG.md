@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.1 — 2026-11-21
+
+Fix the recent-output-speed reading for paged Sessions.
+
+- The reading now folds a host-side `devPluginsRecentTps` session projection
+  that keeps each settled step's first-token time and provider output tokens.
+  The paged Chat window cannot supply those: durable replay reports
+  `timing.firstTokenTime: null` once a step's chunk events leave the loaded
+  event window, so the 0.9.0 reading stayed hidden in long Sessions.
+- The projection keeps six minutes of samples as compact
+  `[firstToken, completedTime, outputTokens]` triples (capped at 256, state
+  version 2), pruned against the event clock and re-clipped on read relative to
+  the newest sample, so the wire payload stays bounded. A retried step keeps the
+  first token from its earliest attempt, and a forked Session skips its
+  parent's inherited prefix. The client still falls back to the Chat nodes when
+  the Host half predates it.
+- Tests cover compact-stream first-token extraction, retry attempts, the fork
+  prefix, retention and the sample cap, the wire view's pruning and identity,
+  and the sample fold.
+
 ## 0.9.0 — 2026-11-21
 
 Recent output speed, under the composer and inside session statistics.
