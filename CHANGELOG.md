@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0 — 2026-11-21
+
+Recent output speed, under the composer and inside session statistics.
+
+- A new `conversation.composer.dock` pill shows the output speed of the last
+  five minutes (clock icon, `近 5 分钟 52 tok/s`) next to the stock session
+  statistics.
+- The stock **会话统计** dialog gains one row with the same reading, appended to
+  its `dl[data-session-stats-details]` list and borrowing that list's styles, so
+  closing the dialog leaves the value visible under the input box. A body-level
+  MutationObserver plus a five-second tick re-appends and updates the row.
+- The reading folds assistant steps whose message landed inside the trailing
+  five-minute window: provider output tokens divided by decode time (first token
+  to message). Steps without provider usage are skipped, and a window with no
+  step shows no pill.
+- New `recentTps` switch, injected as `__DSH_DEV_PLUGINS_RECENT_TPS__`, with a
+  Settings → **Dev plugins** row; defaults to on. Both READMEs document the
+  feature, and the compatibility notes record the dialog-marker dependency.
+
 ## 0.8.3 — 2026-11-07
 
 Compatibility with the deployed dsh 0.2.2-rc.1 release.

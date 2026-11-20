@@ -625,7 +625,9 @@ test('apply registers the statistics panel and its sidebar entry', async () => {
   const client = await loadClientBundle({ react: { createElement: () => undefined } })
   const browser = installBrowser()
   const previous = globalThis.__DSH_DEV_PLUGINS_STATS__
+  const previousRecent = globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
   delete globalThis.__DSH_DEV_PLUGINS_STATS__
+  globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = { enabled: false }
   try {
     const seats = []
     const registrations = []
@@ -654,6 +656,8 @@ test('apply registers the statistics panel and its sidebar entry', async () => {
   } finally {
     if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
     else globalThis.__DSH_DEV_PLUGINS_STATS__ = previous
+    if (previousRecent === undefined) delete globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+    else globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = previousRecent
     browser.restore()
   }
 })
@@ -662,8 +666,10 @@ test('a disabled host statistics switch installs no panel', async () => {
   const client = await loadClientBundle({ react: { createElement: () => undefined } })
   const browser = installBrowser()
   const previous = globalThis.__DSH_DEV_PLUGINS_STATS__
+  const previousRecent = globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
   try {
     globalThis.__DSH_DEV_PLUGINS_STATS__ = { enabled: false }
+    globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = { enabled: false }
     const seats = []
     const fixture = fakeContext()
     fixture.ctx.slots = {
@@ -681,8 +687,258 @@ test('a disabled host statistics switch installs no panel', async () => {
   } finally {
     if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
     else globalThis.__DSH_DEV_PLUGINS_STATS__ = previous
+    if (previousRecent === undefined) delete globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+    else globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = previousRecent
     browser.restore()
   }
+})
+
+test('the recent-TPS reading averages settled steps inside the trailing window', async () => {
+  const client = await loadClientBundle()
+  const now = 1_700_000_000_000
+  const nodes = [
+    // 500 tokens over 10s.
+    { kind: 'assistant', timing: { firstTokenTime: now - 60_000, completedTime: now - 50_000 }, usage: { outputTokens: 500 } },
+    // 900 tokens over 10s, completing at the window edge.
+    {
+      kind: 'assistant',
+      timing: {
+        firstTokenTime: now - client.__test.RECENT_TPS_WINDOW_MS + 8_000,
+        completedTime: now - client.__test.RECENT_TPS_WINDOW_MS + 18_000,
+      },
+      usage: { outputTokens: 900 },
+    },
+    // Outside the window.
+    { kind: 'assistant', timing: { firstTokenTime: now - 900_000, completedTime: now - 600_001 }, usage: { outputTokens: 9_999 } },
+    // No provider usage.
+    { kind: 'assistant', timing: { firstTokenTime: now - 10_000, completedTime: now - 5_000 } },
+    // Not an assistant step.
+    { kind: 'user', timing: { firstTokenTime: now - 10_000, completedTime: now - 5_000 }, usage: { outputTokens: 100 } },
+  ]
+  assert.equal(client.__test.RECENT_TPS_WINDOW_MS, 300_000)
+  assert.equal(client.__test.recentTpsReading(nodes, now), 70)
+  assert.equal(client.__test.recentTpsReading(nodes, now, 1_000), null)
+  assert.equal(client.__test.recentTpsReading([], now), null)
+  assert.equal(client.__test.recentTpsReading(undefined, now), null)
+  assert.equal(client.__test.formatTps(70.4), '70')
+  assert.equal(client.__test.formatTps(9.94), '9.9')
+  assert.equal(client.__test.formatTps(-1), '0')
+})
+
+test('the recent-TPS switch is read from the host-injected global', async () => {
+  const client = await loadClientBundle()
+  const previous = globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+  try {
+    delete globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+    assert.equal(client.__test.recentTpsEnabled(), true)
+    globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = { enabled: false }
+    assert.equal(client.__test.recentTpsEnabled(), false)
+    globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = { enabled: true }
+    assert.equal(client.__test.recentTpsEnabled(), true)
+  } finally {
+    if (previous === undefined) delete globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+    else globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = previous
+  }
+})
+
+test('the recent-TPS reading registers one composer dock pill', async () => {
+  const client = await loadClientBundle({ react: { createElement: () => undefined } })
+  const browser = installBrowser()
+  try {
+    const seats = []
+    const registrations = []
+    const fixture = fakeContext()
+    fixture.ctx.slots = {
+      inject(seat, callback) {
+        seats.push(seat)
+        return callback()
+      },
+      register(registration) {
+        registrations.push(registration)
+        return () => {}
+      },
+    }
+    fixture.ctx.locale = { register: () => () => {}, bind: () => (key) => key }
+    assert.equal(client.__test.installRecentTpsWith(fixture.ctx), true)
+    assert.deepEqual(seats, ['conversation.composer.dock'])
+    assert.deepEqual(
+      registrations.map(({ name: slot, id, order, locale }) => ({ slot, id, order, locale })),
+      [{ slot: 'conversation.composer.dock', id: 'recent-tps', order: 2, locale: 'dsh-dev-plugins.recent-tps' }],
+    )
+    fixture.ctx.disposers.forEach((dispose) => dispose?.())
+  } finally {
+    browser.restore()
+  }
+})
+
+/** Minimal element stand-in for the session-statistics row injection. */
+function fakeElement(tagName) {
+  return {
+    tagName,
+    attrs: new Map(),
+    children: [],
+    textContent: '',
+    parent: null,
+    querySelector(selector) {
+      const match = /^(dt|dd)\[data-dsh-recent-tps\]$/u.exec(selector)
+      if (match === null) return null
+      return findMarked(this, match[1]) ?? null
+    },
+    setAttribute(name, value) {
+      this.attrs.set(name, value)
+    },
+    append(...children) {
+      for (const child of children) {
+        child.parent = this
+        this.children.push(child)
+      }
+    },
+    remove() {
+      if (this.parent === null) return
+      this.parent.children = this.parent.children.filter((child) => child !== this)
+      this.parent = null
+    },
+  }
+}
+
+/** Find the first descendant matching a tag name and plugin marker. */
+function findMarked(node, tagName) {
+  for (const child of node.children ?? []) {
+    if (child.tagName === tagName) return child
+    const nested = findMarked(child, tagName)
+    if (nested !== undefined) return nested
+  }
+  return undefined
+}
+
+test('apply installs the recent-TPS pill while its host switch is on', async () => {
+  const client = await loadClientBundle({ react: { createElement: () => undefined } })
+  const browser = installBrowser()
+  const previousStats = globalThis.__DSH_DEV_PLUGINS_STATS__
+  const previousRecent = globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+  delete globalThis.__DSH_DEV_PLUGINS_STATS__
+  delete globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+  try {
+    const seats = []
+    const registrations = []
+    const fixture = fakeContext()
+    fixture.ctx.slots = {
+      inject(seat, callback) {
+        seats.push(seat)
+        return callback()
+      },
+      register(registration) {
+        registrations.push(registration)
+        return () => {}
+      },
+    }
+    fixture.ctx.locale = { register: () => () => {}, bind: () => (key) => key }
+    client.apply(fixture.ctx)
+    assert.ok(seats.includes('conversation.composer.dock'))
+    assert.ok(registrations.some((registration) => registration.id === 'recent-tps'))
+    fixture.ctx.disposers.forEach((dispose) => dispose?.())
+
+    const offSeats = []
+    const offRegistrations = []
+    globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = { enabled: false }
+    const offFixture = fakeContext()
+    offFixture.ctx.slots = {
+      inject(seat, callback) {
+        offSeats.push(seat)
+        return callback()
+      },
+      register(registration) {
+        offRegistrations.push(registration)
+        return () => {}
+      },
+    }
+    offFixture.ctx.locale = { register: () => () => {}, bind: () => (key) => key }
+    client.apply(offFixture.ctx)
+    assert.equal(offSeats.includes('conversation.composer.dock'), false)
+    assert.equal(offRegistrations.some((registration) => registration.id === 'recent-tps'), false)
+    offFixture.ctx.disposers.forEach((dispose) => dispose?.())
+  } finally {
+    if (previousStats === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
+    else globalThis.__DSH_DEV_PLUGINS_STATS__ = previousStats
+    if (previousRecent === undefined) delete globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__
+    else globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = previousRecent
+    browser.restore()
+  }
+})
+
+test('the recent-TPS row is appended to, updated in, and removed from the statistics dialog', async () => {
+  const client = await loadClientBundle()
+  const body = fakeElement('body')
+  const list = fakeElement('dl')
+  list.available = true
+  const document = {
+    body,
+    createElement: (tagName) => fakeElement(tagName),
+    querySelector(selector) {
+      if (selector === 'dl[data-session-stats-details]') return list.available ? list : null
+      if (selector === 'dt[data-dsh-recent-tps]') return findMarked(list, 'dt') ?? null
+      if (selector === 'dd[data-dsh-recent-tps]') return findMarked(list, 'dd') ?? null
+      return null
+    },
+  }
+  const observers = []
+  class FakeObserver {
+    constructor(callback) {
+      this.callback = callback
+      this.disconnected = false
+      observers.push(this)
+    }
+
+    observe(target, options) {
+      this.target = target
+      this.options = options
+    }
+
+    disconnect() {
+      this.disconnected = true
+    }
+
+    fire() {
+      this.callback()
+    }
+  }
+  const t = (key, params) => (key === 'tps' ? `${params.tps} tok/s` : key)
+  client.__test.publishRecentTps(70)
+  let dispose
+  try {
+    dispose = client.__test.installRecentTpsDialogRow(t, document, FakeObserver)
+    assert.equal(observers.length, 1)
+    assert.equal(observers[0].target, body)
+    assert.deepEqual(observers[0].options, { childList: true })
+    const term = findMarked(list, 'dt')
+    const detail = findMarked(list, 'dd')
+    assert.equal(term?.textContent, 'row')
+    assert.equal(detail?.textContent, '70 tok/s')
+    assert.equal(term?.attrs.get('data-dsh-recent-tps'), 'label')
+
+    client.__test.publishRecentTps(9.94)
+    observers[0].fire()
+    assert.equal(findMarked(list, 'dd')?.textContent, '9.9 tok/s')
+
+    client.__test.publishRecentTps(null)
+    observers[0].fire()
+    assert.equal(findMarked(list, 'dt'), undefined)
+    assert.equal(findMarked(list, 'dd'), undefined)
+
+    client.__test.publishRecentTps(12)
+    observers[0].fire()
+    assert.equal(findMarked(list, 'dd')?.textContent, '12 tok/s')
+
+    // A dialog remount drops the row; the next sync re-appends it.
+    list.children = []
+    observers[0].fire()
+    assert.equal(findMarked(list, 'dd')?.textContent, '12 tok/s')
+  } finally {
+    dispose?.()
+    client.__test.publishRecentTps(null)
+  }
+  assert.equal(observers[0].disconnected, true)
+  assert.equal(findMarked(list, 'dt'), undefined)
 })
 
 test('the settings section exposes one switch per bundle feature', async () => {
@@ -705,6 +961,7 @@ test('the settings section exposes one switch per bundle feature', async () => {
       loginPage: true,
       notifications: true,
       statsPage: true,
+      recentTps: true,
       composerNewline: true,
       browserControl: true,
     },
@@ -766,10 +1023,10 @@ test('the settings section exposes one switch per bundle feature', async () => {
   }
   const page = components[0]({ t: (key) => key })
   const switches = flatten(page).filter((node) => node.type === 'button' && node.props.role === 'switch')
-  assert.equal(switches.length, 6)
+  assert.equal(switches.length, 7)
   assert.deepEqual(
     switches.map((node) => node.props['aria-label']),
-    ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl'],
+    ['loopback', 'loginPage', 'notifications', 'statsPage', 'recentTps', 'composerNewline', 'browserControl'],
   )
   assert.equal(switches[0].props['aria-checked'], 'true')
   switches[0].props.onClick()
