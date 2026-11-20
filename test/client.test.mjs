@@ -759,7 +759,7 @@ test('the recent-TPS switch is read from the host-injected global', async () => 
   }
 })
 
-test('the recent-TPS reading registers one composer dock pill', async () => {
+test('the recent-TPS reading replaces the activity dock cell', async () => {
   const client = await loadClientBundle({ react: { createElement: () => undefined } })
   const browser = installBrowser()
   try {
@@ -780,22 +780,62 @@ test('the recent-TPS reading registers one composer dock pill', async () => {
     assert.equal(client.__test.installRecentTpsWith(fixture.ctx), true)
     assert.deepEqual(seats, ['conversation.composer.dock'])
     assert.deepEqual(
-      registrations.map(({ name: slot, id, order, locale }) => ({ slot, id, order, locale })),
-      [{ slot: 'conversation.composer.dock', id: 'recent-tps', order: 2, locale: 'dsh-dev-plugins.recent-tps' }],
+      registrations.map(({ name: slot, id, order, priority, locale }) => ({ slot, id, order, priority, locale })),
+      [{
+        slot: 'conversation.composer.dock',
+        id: 'activity',
+        order: 0,
+        priority: -1,
+        locale: 'dsh-dev-plugins.recent-tps',
+      }],
     )
+    assert.equal(registrations[0].inject, undefined)
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
     browser.restore()
   }
 })
 
-test('the recent-TPS pill renders its reading and hides without one', async () => {
-  const react = {
+/** Fake React surface for the replaced activity pill. */
+function activityReact() {
+  return {
+    Fragment: {},
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
     useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useRef: () => ({ current: null }),
+    useMemo: (factory) => factory(),
     useEffect: () => {},
   }
-  const client = await loadClientBundle({ react })
+}
+
+/** Translate seat that yields readable strings for the pill and its rows. */
+function activityTranslate() {
+  return (key, params) => {
+    switch (key) {
+      case 'counts':
+        return `${params.turns} turns, ${params.steps} steps`
+      case 'tps':
+        return `${params.tps} tok/s`
+      case 'seconds':
+        return `${params.seconds}s`
+      case 'minutes':
+        return `${params.minutes}m${params.seconds}s`
+      default:
+        return key
+    }
+  }
+}
+
+/** Every string inside a fake element tree. */
+function textsOf(node, out = []) {
+  if (typeof node === 'string') out.push(node)
+  else if (Array.isArray(node)) node.forEach((child) => textsOf(child, out))
+  else if (node !== null && typeof node === 'object') (node.children ?? []).forEach((child) => textsOf(child, out))
+  return out
+}
+
+test('the replaced activity pill shows only the trailing speed', async () => {
+  const client = await loadClientBundle({ react: activityReact() })
   const browser = installBrowser()
   try {
     let component
@@ -807,95 +847,72 @@ test('the recent-TPS pill renders its reading and hides without one', async () =
         return () => {}
       },
     }
-    fixture.ctx.locale = {
-      register: () => () => {},
-      bind: () => (key, params) => (key === 'pill' ? `last 5 min ${params.tps} tok/s` : key),
-    }
+    fixture.ctx.locale = { register: () => () => {}, bind: () => activityTranslate() }
     assert.equal(client.__test.installRecentTpsWith(fixture.ctx), true)
-    assert.equal(typeof component, 'function')
     const now = Date.now()
-    const nodes = [
+    const sessionStats = {
+      turns: 2,
+      steps: 3,
+      llmMs: 4_000,
+      toolMs: 0,
+      ttftMs: 2_000,
+      ttftSteps: 1,
+      decodeMs: 10_000,
+      decodeTokens: 1_000,
+    }
+    const render = ({ samples, nodes = [] } = {}) => component({
+      useChat: (selector) => selector({ legacy: { nodes } }),
+      useProjection: (key) => {
+        if (key === 'sessionStats') return sessionStats
+        if (key === 'devPluginsRecentTps') return samples === undefined ? undefined : { samples }
+        return undefined
+      },
+    })
+    const recentSamples = [[now - 5_000, now - 1_000, 100]]
+    const detailed = render({ samples: recentSamples })
+    assert.equal(detailed.props['data-composer-stat'], 'activity')
+    // One TPS only: no counts, no prefix; the whole-session reading stays in the dialog.
+    assert.deepEqual(textsOf(detailed), ['25 tok/s'])
+
+    // Without a trailing reading the pill falls back to the counts, keeping the dialog reachable.
+    assert.deepEqual(textsOf(render()), ['2 turns, 3 steps'])
+
+    // The paged Chat nodes still feed the fallback.
+    const fallbackNodes = [
       { kind: 'assistant', timing: { firstTokenTime: now - 5_000, completedTime: now - 1_000 }, usage: { outputTokens: 100 } },
     ]
-    const tree = component({ useChat: (selector) => selector({ legacy: { nodes } }) })
-    assert.equal(tree.props['data-composer-stat'], 'recent-tps')
-    const texts = []
-    const walk = (node) => {
-      if (typeof node === 'string') texts.push(node)
-      else if (Array.isArray(node)) node.forEach(walk)
-      else if (node !== null && typeof node === 'object') (node.children ?? []).forEach(walk)
-    }
-    walk(tree)
-    assert.ok(texts.includes('last 5 min 25 tok/s'))
-    // The Host projection wins even when the paged Chat nodes carry no timing.
-    const projected = component({
-      useChat: (selector) => selector({ legacy: { nodes: [{ kind: 'assistant' }] } }),
-      useProjection: (key) => (key === 'devPluginsRecentTps'
-        ? { samples: [[now - 5_000, now - 1_000, 100]] }
-        : undefined),
-    })
-    const projectedTexts = []
-    const walkProjected = (node) => {
-      if (typeof node === 'string') projectedTexts.push(node)
-      else if (Array.isArray(node)) node.forEach(walkProjected)
-      else if (node !== null && typeof node === 'object') (node.children ?? []).forEach(walkProjected)
-    }
-    walkProjected(projected)
-    assert.ok(projectedTexts.includes('last 5 min 25 tok/s'))
-    assert.equal(component({ useChat: (selector) => selector({ legacy: { nodes: [] } }) }), null)
-    assert.equal(component({ useChat: (selector) => selector(undefined) }), null)
+    assert.ok(textsOf(render({ nodes: fallbackNodes })).includes('25 tok/s'))
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
-    client.__test.publishRecentTps(null)
     browser.restore()
   }
 })
 
-/** Minimal element stand-in for the session-statistics row injection. */
-function fakeElement(tagName) {
-  return {
-    tagName,
-    attrs: new Map(),
-    children: [],
-    textContent: '',
-    parent: null,
-    get lastElementChild() {
-      return this.children[this.children.length - 1] ?? null
-    },
-    querySelector(selector) {
-      const match = /^(dt|dd)\[data-dsh-recent-tps\]$/u.exec(selector)
-      if (match === null) return null
-      return findMarked(this, match[1], true) ?? null
-    },
-    setAttribute(name, value) {
-      this.attrs.set(name, value)
-    },
-    append(...children) {
-      for (const child of children) {
-        if (child.parent !== null) child.parent.children = child.parent.children.filter((node) => node !== child)
-        child.parent = this
-        this.children.push(child)
-      }
-    },
-    remove() {
-      if (this.parent === null) return
-      this.parent.children = this.parent.children.filter((child) => child !== this)
-      this.parent = null
-    },
+test('the replaced activity dialog keeps the whole-session rows and adds the trailing one', async () => {
+  const client = await loadClientBundle()
+  const t = activityTranslate()
+  const stats = {
+    turns: 2,
+    steps: 3,
+    llmMs: 61_000,
+    toolMs: 5_000,
+    ttftMs: 2_000,
+    ttftSteps: 1,
+    decodeMs: 10_000,
+    decodeTokens: 1_000,
   }
-}
+  assert.deepEqual(client.__test.activityRows(stats, 100, 25, t), [
+    { label: 'modelTime', value: '1m1s' },
+    { label: 'toolTime', value: '5s' },
+    { label: 'ttft', value: '2s' },
+    { label: 'speed', value: '100 tok/s' },
+    { label: 'recent', value: '25 tok/s' },
+  ])
+  const empty = { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0 }
+  assert.deepEqual(client.__test.activityRows(empty, null, null, t), [])
+})
 
-/** Find the first descendant matching a tag name, optionally only the plugin row. */
-function findMarked(node, tagName, markedOnly = false) {
-  for (const child of node.children ?? []) {
-    if (child.tagName === tagName && (markedOnly === false || child.attrs.has('data-dsh-recent-tps'))) return child
-    const nested = findMarked(child, tagName, markedOnly)
-    if (nested !== undefined) return nested
-  }
-  return undefined
-}
-
-test('apply installs the recent-TPS pill while its host switch is on', async () => {
+test('apply installs the replaced activity pill while its host switch is on', async () => {
   const client = await loadClientBundle({ react: { createElement: () => undefined } })
   const browser = installBrowser()
   const previousStats = globalThis.__DSH_DEV_PLUGINS_STATS__
@@ -919,7 +936,7 @@ test('apply installs the recent-TPS pill while its host switch is on', async () 
     fixture.ctx.locale = { register: () => () => {}, bind: () => (key) => key }
     client.apply(fixture.ctx)
     assert.ok(seats.includes('conversation.composer.dock'))
-    assert.ok(registrations.some((registration) => registration.id === 'recent-tps'))
+    assert.ok(registrations.some((registration) => registration.id === 'activity'))
     fixture.ctx.disposers.forEach((dispose) => dispose?.())
 
     const offSeats = []
@@ -939,7 +956,7 @@ test('apply installs the recent-TPS pill while its host switch is on', async () 
     offFixture.ctx.locale = { register: () => () => {}, bind: () => (key) => key }
     client.apply(offFixture.ctx)
     assert.equal(offSeats.includes('conversation.composer.dock'), false)
-    assert.equal(offRegistrations.some((registration) => registration.id === 'recent-tps'), false)
+    assert.equal(offRegistrations.some((registration) => registration.id === 'activity'), false)
     offFixture.ctx.disposers.forEach((dispose) => dispose?.())
   } finally {
     if (previousStats === undefined) delete globalThis.__DSH_DEV_PLUGINS_STATS__
@@ -948,103 +965,6 @@ test('apply installs the recent-TPS pill while its host switch is on', async () 
     else globalThis.__DSH_DEV_PLUGINS_RECENT_TPS__ = previousRecent
     browser.restore()
   }
-})
-
-test('the recent-TPS row is appended to, updated in, and removed from the statistics dialog', async () => {
-  const client = await loadClientBundle()
-  const body = fakeElement('body')
-  const list = fakeElement('dl')
-  list.available = true
-  const document = {
-    body,
-    createElement: (tagName) => fakeElement(tagName),
-    querySelector(selector) {
-      if (selector === 'dl[data-session-stats-details]') return list.available ? list : null
-      if (selector === 'dt[data-dsh-recent-tps]') return findMarked(list, 'dt', true) ?? null
-      if (selector === 'dd[data-dsh-recent-tps]') return findMarked(list, 'dd', true) ?? null
-      return null
-    },
-  }
-  const observers = []
-  class FakeObserver {
-    constructor(callback) {
-      this.callback = callback
-      this.disconnected = false
-      observers.push(this)
-    }
-
-    observe(target, options) {
-      this.target = target
-      this.options = options
-    }
-
-    disconnect() {
-      this.disconnected = true
-    }
-
-    fire() {
-      this.callback()
-    }
-  }
-  const t = (key, params) => (key === 'tps' ? `${params.tps} tok/s` : key)
-  client.__test.publishRecentTps(70)
-  let dispose
-  try {
-    dispose = client.__test.installRecentTpsDialogRow(t, document, FakeObserver)
-    // One observer for the dialog appearing on the body, one for its row list.
-    assert.equal(observers.length, 2)
-    assert.equal(observers[0].target, body)
-    assert.deepEqual(observers[0].options, { childList: true })
-    assert.equal(observers[1].target, list)
-    assert.deepEqual(observers[1].options, { childList: true })
-    const term = findMarked(list, 'dt', true)
-    const detail = findMarked(list, 'dd', true)
-    assert.equal(term?.textContent, 'row')
-    assert.equal(detail?.textContent, '70 tok/s')
-    assert.equal(term?.attrs.get('data-dsh-recent-tps'), 'label')
-
-    client.__test.publishRecentTps(9.94)
-    observers[0].fire()
-    assert.equal(findMarked(list, 'dd', true)?.textContent, '9.9 tok/s')
-
-    // A settled stock row lands after ours; the list observer moves it back.
-    const settled = fakeElement('dd')
-    settled.textContent = 'stock row'
-    list.append(settled)
-    observers[1].fire()
-    assert.equal(list.lastElementChild, findMarked(list, 'dd', true))
-
-    // A React remount drops the row; the list observer re-appends it.
-    list.children = []
-    observers[1].fire()
-    assert.equal(findMarked(list, 'dd', true)?.textContent, '9.9 tok/s')
-
-    client.__test.publishRecentTps(null)
-    observers[1].fire()
-    assert.equal(findMarked(list, 'dt', true), undefined)
-    assert.equal(findMarked(list, 'dd', true), undefined)
-
-    client.__test.publishRecentTps(12)
-    observers[1].fire()
-    assert.equal(findMarked(list, 'dd', true)?.textContent, '12 tok/s')
-
-    // Closing the dialog disconnects its list observer; reopening follows the new list.
-    list.available = false
-    observers[0].fire()
-    assert.equal(observers[1].disconnected, true)
-    list.available = true
-    observers[0].fire()
-    assert.equal(observers.length, 3)
-    assert.equal(observers[2].target, list)
-    assert.equal(findMarked(list, 'dd', true)?.textContent, '12 tok/s')
-  } finally {
-    dispose?.()
-    client.__test.publishRecentTps(null)
-  }
-  assert.equal(observers[0].disconnected, true)
-  assert.equal(observers[1].disconnected, true)
-  assert.equal(observers[2].disconnected, true)
-  assert.equal(findMarked(list, 'dt', true), undefined)
 })
 
 test('the settings section exposes one switch per bundle feature', async () => {

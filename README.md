@@ -214,19 +214,22 @@ returns only token totals, workspace paths, and day keys, never message content.
 
 ### Recent output speed
 
-Under the composer, next to the stock session statistics, the bundle adds one
-reading of the last five minutes of output speed (a clock icon and
-`last 5 min 52 tok/s`). The stock **session statistics** dialog gains one row
-with the same number, so closing the dialog leaves the value visible under the
-input box.
+The composer statistics pill now reports the last five minutes: the bundle
+replaces the shipped `activity` cell (the documented same-id/order registration,
+with a lower priority) with one that shows a single reading, the
+trailing-window output speed (`189 tok/s`). The turn/step counts move into the
+dialog, which the pill still opens as **会话统计**, now with the whole-session
+rows (LLM time, tool time, TTFT, whole-session TPS) plus one `近 5 分钟 TPS`
+row.
 
 The reading clips each settled step's decode span (first token to message) to
 the trailing five-minute window and prorates its provider-reported output tokens
 by the overlap, then divides the summed tokens by the summed time. A long step
 that started before the window therefore contributes only its in-window share,
 and each step keeps the rate it shows on its own. Steps without provider usage
-do not count, and a Session with no step in the window shows no pill. The window
-re-evaluates every five seconds.
+do not count. A window with no settled step falls back to the counts in the
+pill, so the dialog stays reachable; the window re-evaluates every five
+seconds.
 
 The samples come from a host-side session projection (`devPluginsRecentTps`)
 that keeps the first-token time of every settled step, because the browser's
@@ -411,18 +414,16 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 
 7. **Composer Enter — client capture listener.** The client half installs one capture-phase `keydown` listener on the page document. A plain Enter inside the composer's Lexical editor (`[data-composer-card]` containing `[data-lexical-editor="true"]`) is cancelled and replayed as the Shift+Enter chord the stock composer already maps to a line break; Cmd/Ctrl+Enter still submits. The rewrite is skipped while a slash-command, mention, or file menu (`[data-trigger-menu]`) is open, and during IME composition.
 
-9. **Recent output speed — host projection, client dock entry, dialog row.** The
-   Host registers a `devPluginsRecentTps` session projection that keeps six
-   minutes of settled decode samples (first token, message, provider output
-   tokens), folded from the compact assistant streams and pruned against the
-   event clock; it reaches the browser as a wire projection. The client half
-   registers one `conversation.composer.dock` entry (id `recent-tps`, order 2),
-   clips those samples to the trailing five minutes, and falls back to the Chat
-   target's settled nodes when the projection is absent. The same reading is
-   appended to the stock session-statistics dialog's
-   `dl[data-session-stats-details]` list by a body-level MutationObserver plus a
-   five-second tick; the appended `dt`/`dd` inherit that list's styles. The Host
-   injects `__DSH_DEV_PLUGINS_RECENT_TPS__` from `config.recentTps`.
+9. **Recent output speed — host projection plus a replaced dock cell.** The Host
+   registers a `devPluginsRecentTps` session projection that keeps six minutes
+   of settled decode samples (first token, message, provider output tokens),
+   folded from the compact assistant streams and pruned against the event clock;
+   it reaches the browser as a wire projection. The client half re-registers the
+   shipped `activity` cell under the same id and order with a lower priority (the
+   documented replacement seam), renders its counts plus the trailing-window
+   speed, and owns the statistics dialog, which keeps the whole-session rows and
+   adds the trailing-window row. Nothing is DOM-injected. The Host injects
+   `__DSH_DEV_PLUGINS_RECENT_TPS__` from `config.recentTps`.
 
 ## Compatibility
 
@@ -437,12 +438,13 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - The token seam reads `connection.browserAuth.launchToken`. If dsh changes that shape, the plugin throws at boot when a token is configured; unset the token or update the plugin.
 - Browser control needs Chrome 120+ with the extension loaded unpacked. The `debugger` permission shows Chrome's automation banner while a tab is attached. On a headless server there is no Chrome, so the bridge stays idle and the tools fail with `bridge_disconnected`.
 - The patch resolves `bridge/index.js` from `$DSH_HOME` and `$DSH_PROFILE`; a host that launches `dsh web` without those environment variables falls back to `~/.dsh` and the `web` profile. A different profile name therefore needs the variable set (the stock CLI exports both).
-- The recent-output-speed row depends on two dsh seams: the
-  `sessionProjections` registry (the `devPluginsRecentTps` wire unit) and the
-  `dl[data-session-stats-details]` marker in the session-statistics dialog. If a
-  release drops either, the dialog row disappears; a missing projection also
-  forces the client back to the paged Chat nodes, whose `firstTokenTime` is null
-  for older history, so the reading may stay hidden in long Sessions.
+- The replaced composer pill depends on the `conversation.composer.dock` list
+  contract, the `sessionStats` projection (or its Chat-node fallback), the
+  `chat` standard props, and the `sessionProjections` registry for
+  `devPluginsRecentTps`. If dsh drops the slot contract, the stock pill stays
+  untouched; if the projection is missing, the reading falls back to the paged
+  Chat nodes, whose `firstTokenTime` is null for older history, so it may stay
+  hidden in long Sessions.
 - The composer Enter rewrite depends on dsh-internal DOM markers (`[data-composer-card]`, `[data-lexical-editor="true"]`, `[data-trigger-menu]`). If a future dsh release renames them, the listener finds no composer and silently no-ops, restoring stock Enter-sends; it never breaks the page.
 - The login form wraps `connection.authorizeIndex` and reads `browserAuth.isAuthenticated`. If a future dsh version removes either, the form is skipped and the bare URL answers the stock plain `401`; the rest of the plugin keeps working.
 - Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription. the client session list projects the raw `parentSessionId` field onto rows as `parentId`; both shapes suppress a row that carries a parent link, so subagent rows stop notifying.

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0 — 2026-11-21
+
+Under the composer, only one TPS shows, and it is the recent one.
+
+- The shipped composer `activity` statistics cell is replaced through the
+  documented same-id/order registration at a lower priority: the pill shows one
+  reading, the trailing five-minute output speed, instead of the whole-session
+  average; the turn/step counts move into the dialog. An empty window falls
+  back to the counts so the dialog stays reachable.
+- The plugin now owns the **会话统计** dialog instead of appending a row to the
+  stock DOM: the whole-session rows (LLM time, tool time, TTFT, whole-session
+  TPS) remain, plus the `近 5 分钟 TPS` row. The body/list
+  `MutationObserver` row injection is gone.
+- `recentTps: false` restores the shipped pill untouched.
+- Both READMEs and the compatibility notes describe the replaced cell and the
+  remaining seams.
+
 ## 0.9.1 — 2026-11-21
 
 Fix the recent-output-speed reading for paged Sessions.
