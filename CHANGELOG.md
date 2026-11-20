@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.1 — 2026-11-21
+
+Keep the turn/step counts in front of the trailing TPS.
+
+- 0.10.0 dropped `X 轮 Y 步` from the composer pill; it is back. The pill now
+  reads `2 轮 325 步 · 189 tok/s` — counts, one separator, the trailing
+  five-minute TPS, no window prefix. An empty window still falls back to the
+  counts alone so the dialog stays reachable.
+- The plugin-owned dialog is unchanged: whole-session rows plus
+  `近 5 分钟 TPS`.
+
 ## 0.10.0 — 2026-11-21
 
 Under the composer, only one TPS shows, and it is the recent one.
