@@ -216,11 +216,10 @@ returns only token totals, workspace paths, and day keys, never message content.
 
 The composer statistics pill now reports the last five minutes: the bundle
 replaces the shipped `activity` cell (the documented same-id/order registration,
-with a lower priority) with one that shows a single reading, the
-trailing-window output speed (`189 tok/s`). The turn/step counts move into the
-dialog, which the pill still opens as **会话统计**, now with the whole-session
-rows (LLM time, tool time, TTFT, whole-session TPS) plus one `近 5 分钟 TPS`
-row.
+with a lower priority) with one that keeps the turn/step counts and shows a single
+speed reading, the trailing-window TPS (`2 轮 325 步 · 189 tok/s`). The pill
+still opens **会话统计**, now with the whole-session rows (LLM time, tool time,
+TTFT, whole-session TPS) plus one `近 5 分钟 TPS` row.
 
 The reading clips each settled step's decode span (first token to message) to
 the trailing five-minute window and prorates its provider-reported output tokens

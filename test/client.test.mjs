@@ -871,8 +871,11 @@ test('the replaced activity pill shows only the trailing speed', async () => {
     const recentSamples = [[now - 5_000, now - 1_000, 100]]
     const detailed = render({ samples: recentSamples })
     assert.equal(detailed.props['data-composer-stat'], 'activity')
-    // One TPS only: no counts, no prefix; the whole-session reading stays in the dialog.
-    assert.deepEqual(textsOf(detailed), ['25 tok/s'])
+    // Counts stay in front of the single trailing TPS; the whole-session
+    // reading stays in the dialog.
+    const detailedText = textsOf(detailed)
+    assert.deepEqual(detailedText, ['2 turns, 3 steps', '·', '25 tok/s'])
+    assert.equal(detailedText.filter((text) => text.includes('tok/s')).length, 1)
 
     // Without a trailing reading the pill falls back to the counts, keeping the dialog reachable.
     assert.deepEqual(textsOf(render()), ['2 turns, 3 steps'])
