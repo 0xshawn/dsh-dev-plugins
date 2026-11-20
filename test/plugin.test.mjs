@@ -21,10 +21,10 @@ import {
   writeFeatureState,
 } from '../lib/index.js'
 
-/** Read the six settings-editable switches out of a resolved config. */
+/** Read the seven settings-editable switches out of a resolved config. */
 function featureFlags(config) {
   const flags = {}
-  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl']) {
+  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'recentTps', 'composerNewline', 'browserControl']) {
     flags[key] = featureEnabled(config, key)
   }
   return flags
@@ -74,7 +74,7 @@ test('Config defaults keep the patch behaviour', () => {
   const defaults = Config({})
   // Settings pages are served only for volatile fields: the Host filters the
   // entry out of the describe form otherwise, so pin the editable shape here.
-  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'composerNewline', 'browserControl']) {
+  for (const key of ['loopback', 'loginPage', 'notifications', 'statsPage', 'recentTps', 'composerNewline', 'browserControl']) {
     assert.equal(typeof defaults[key]?.get, 'function', `${key} must be volatile`)
   }
   assert.equal(typeof defaults.launchToken, 'string', 'launchToken stays out of the settings form')
@@ -83,6 +83,7 @@ test('Config defaults keep the patch behaviour', () => {
     loginPage: true,
     notifications: true,
     statsPage: true,
+    recentTps: true,
     composerNewline: true,
     browserControl: true,
   })
@@ -95,6 +96,7 @@ test('Config defaults keep the patch behaviour', () => {
         loginPage: false,
         notifications: false,
         statsPage: false,
+        recentTps: false,
         composerNewline: false,
         browserControl: false,
       }),
@@ -104,6 +106,7 @@ test('Config defaults keep the patch behaviour', () => {
       loginPage: false,
       notifications: false,
       statsPage: false,
+      recentTps: false,
       composerNewline: false,
       browserControl: false,
     },
@@ -119,6 +122,7 @@ test('Config defaults keep the patch behaviour', () => {
     loginPage: true,
     notifications: false,
     statsPage: false,
+    recentTps: true,
     composerNewline: true,
     browserControl: true,
   })
@@ -163,6 +167,7 @@ test('apply injects one loopback row into the served index', () => {
     { kind: 'global', name: '__DSH_DEV_PLUGINS_NOTIFY__', value: { enabled: true } },
     { kind: 'global', name: '__DSH_DEV_PLUGINS_STATS__', value: { enabled: true } },
     { kind: 'global', name: '__DSH_DEV_PLUGINS_COMPOSER__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_RECENT_TPS__', value: { enabled: true } },
   ])
 })
 
@@ -181,7 +186,7 @@ test('apply persists the browser-control switch for the bridge to read at boot',
   ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
   assert.deepEqual(
     table.filter((row) => row.kind === 'global').map((row) => row.name),
-    ['__DSH_DEV_PLUGINS_NOTIFY__', '__DSH_DEV_PLUGINS_STATS__', '__DSH_DEV_PLUGINS_COMPOSER__'],
+    ['__DSH_DEV_PLUGINS_NOTIFY__', '__DSH_DEV_PLUGINS_STATS__', '__DSH_DEV_PLUGINS_COMPOSER__', '__DSH_DEV_PLUGINS_RECENT_TPS__'],
   )
   assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
     browserControl: false,
@@ -198,12 +203,13 @@ test('a volatile settings edit refreshes the derived feature state and page glob
     else process.env.DSH_HOME = previous
     await rm(home, { recursive: true, force: true })
   })
-  const live = { browserControl: true, composerNewline: true, loopback: true, notifications: true, statsPage: true, loginPage: true }
+  const live = { browserControl: true, composerNewline: true, loopback: true, notifications: true, statsPage: true, recentTps: true, loginPage: true }
   const config = Object.fromEntries(Object.keys(live).map((key) => [key, { get: () => live[key] }]))
   const ctx = fakeContext(fakeConnection())
   apply(ctx, { ...config, launchToken: '' })
   live.browserControl = false
   live.composerNewline = false
+  live.recentTps = false
   ctx.emit('loader/volatile-update', [['browserControl']])
   assert.deepEqual(JSON.parse(await readFile(join(home, 'dsh-dev-plugins', 'features.json'), 'utf8')), {
     browserControl: false,
@@ -212,6 +218,8 @@ test('a volatile settings edit refreshes the derived feature state and page glob
   ctx.emit('webserver/index-inject', table, { principal: { kind: 'owner' } })
   const composer = table.find((row) => row.name === '__DSH_DEV_PLUGINS_COMPOSER__')
   assert.deepEqual(composer?.value, { enabled: false })
+  const recent = table.find((row) => row.name === '__DSH_DEV_PLUGINS_RECENT_TPS__')
+  assert.deepEqual(recent?.value, { enabled: false })
 })
 
 test('apply with loopback=false leaves the page authority alone but keeps configuration', () => {
@@ -223,6 +231,7 @@ test('apply with loopback=false leaves the page authority alone but keeps config
     { kind: 'global', name: '__DSH_DEV_PLUGINS_NOTIFY__', value: { enabled: true } },
     { kind: 'global', name: '__DSH_DEV_PLUGINS_STATS__', value: { enabled: true } },
     { kind: 'global', name: '__DSH_DEV_PLUGINS_COMPOSER__', value: { enabled: true } },
+    { kind: 'global', name: '__DSH_DEV_PLUGINS_RECENT_TPS__', value: { enabled: true } },
   ])
 })
 

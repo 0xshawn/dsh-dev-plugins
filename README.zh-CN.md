@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green)](./package.json)
 
-一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知、工作区 token 用量页，以及回车换行的输入框。
+一组以单个 bundle 安装的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）插件。当前版本让 dsh 的 Web UI 可以通过**非 localhost 地址**访问 —— 反向代理、SSH 隧道或局域网地址均可 —— 无需修改已安装的 dsh 源码，并附带浏览器通知、工作区 token 用量页、近期输出速度读数，以及回车换行的输入框。
 
 [English](./README.md)
 
@@ -89,6 +89,8 @@ dsh web --host 127.0.0.1 --port 3080 --no-open
     notifications: true
     # 启用侧边栏 Token 统计页及其只读数据路由。
     statsPage: true
+    # 在输入框下方与会话统计中显示近 5 分钟的输出速度。
+    recentTps: true
     # 让聊天输入框的回车插入换行。
     composerNewline: true
     # 启用浏览器控制 MCP 工具（重启 dsh web 后生效）。
@@ -147,11 +149,19 @@ bundle 还带一个手写、无需构建的浏览器客户端：监听 Session �
 
 页面读取 `GET /dsh-dev-plugins/stats/data?from=<毫秒>&to=<毫秒>&tz=<IANA>`（`from`/`to` 可选，`refresh=1` 强制重扫）。该路由只读，并执行与 `/api` 相同的受信任权威和启动令牌 Cookie 校验；只返回 token 总量、工作区 id/标题/路径、日期键和扫描元数据，不返回消息内容。
 
+### 近期输出速度
+
+输入框下方、官方会话统计旁边新增一个读数胶囊：时钟图标加 `近 5 分钟 52 tok/s`。官方**会话统计**弹窗里也会多一行同样的读数，因此弹窗收起后输入框下方仍能看到这个数字。
+
+读数把每个已结算 step 的解码区间（首个 token 到消息完成）裁剪到最近 5 分钟窗口，按重叠比例折算它的 provider 输出 token，再把 token 总数除以时间总数。因此在窗口前就开始的长 step 只贡献窗口内的那部分，每个 step 仍保持它自身显示的速度。没有 usage 的 step 不计；窗口内没有 step 时不显示胶囊。窗口固定 5 分钟，页面每 5 秒重新计算一次。
+
+这一行追加在官方弹窗的行列表（`dl[data-session-stats-details]`）里，并沿用该列表的样式，所以外观与其它行一致、跟随 dsh 主题。设置 `recentTps: false`（或使用设置页开关）可同时去掉胶囊和这一行。
+
 ### 设置页
 
-设置 → **开发插件** 是一张开关表单，每项 bundle 功能一个开关，默认全部打开：回环页面视图、令牌登录页、浏览器通知、Token 统计页、输入框回车换行、浏览器控制。写入走宿主配置表单，因此会作为普通插件配置写进 profile patch，重启后仍然保留。
+设置 → **开发插件** 是一张开关表单，每项 bundle 功能一个开关，默认全部打开：回环页面视图、令牌登录页、浏览器通知、Token 统计页、近期输出速度、输入框回车换行、浏览器控制。写入走宿主配置表单，因此会作为普通插件配置写进 profile patch，重启后仍然保留。
 
-宿主侧开关是 volatile 配置：运行中的插件实时读取，因此登录页和统计路由改完立即生效，无需重启，Host 插件重载后也保持一致。作用于浏览器半边的开关（通知、统计入口、回车换行）需要刷新页面，页面在写入后会显示刷新提示条。浏览器控制是启动时拉起的 MCP 子进程，必须重启 `dsh web` 才生效。
+宿主侧开关是 volatile 配置：运行中的插件实时读取，因此登录页和统计路由改完立即生效，无需重启，Host 插件重载后也保持一致。作用于浏览器半边的开关（通知、统计入口、近期速度读数、回车换行）需要刷新页面，页面在写入后会显示刷新提示条。浏览器控制是启动时拉起的 MCP 子进程，必须重启 `dsh web` 才生效。
 
 ### 输入框：回车换行
 
@@ -244,8 +254,11 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 
 7. **输入框回车 —— 客户端捕获监听。** 客户端半边在页面 document 上安装一个捕获阶段的 `keydown` 监听器。位于聊天输入框 Lexical 编辑器内（`[data-composer-card]` 中的 `[data-lexical-editor="true"]`）的普通回车会被取消，并重放成上游已经映射为换行的 Shift+回车；Cmd/Ctrl+回车仍然发送。斜杠命令、提及或文件菜单（`[data-trigger-menu]`）打开时，以及输入法组词期间，不执行改写。
 
+9. **近期输出速度 —— 客户端胶囊加弹窗行。** 客户端半边注册一个 `conversation.composer.dock` 条目（id `recent-tps`，order 2），从 Chat 目标的已结算节点中折叠最近 5 分钟窗口。同一读数由一个挂在 `document.body` 上的 MutationObserver 加 5 秒定时器追加到官方会话统计弹窗的 `dl[data-session-stats-details]` 列表里，追加的 `dt`/`dd` 直接沿用该列表的样式。宿主根据 `config.recentTps` 注入 `__DSH_DEV_PLUGINS_RECENT_TPS__` 开关。
+
 ## 兼容性
 
+- 近期输出速度胶囊及其弹窗行已在 dsh `0.2.2-rc.4`（`hapi-deployment` 固定的版本）的实时 Web UI 上检查；插槽注册与开关链路由 `npm test` 覆盖。
 - 已在 dsh `0.2.2-rc.1`（三个部署入口的两半均验证；登录与设置流程在本机入口及其 `:9443` 代理上验证）、`0.2.1-rc.2`、`0.2.1-rc.3` 与 `0.2.0-rc.2` 的 Web profile 上验证。
 - 声明范围：`engines.dsh >=0.2.0-0 <0.3.0-0`。dsh 0.1.x 不受支持，也未测试；dsh 0.3.x 在插件完成验证前保持在范围之外。dsh 0.2.2 的版本门禁按 prerelease 参与比较，因此 `0.2.2-rc.1` 无需版本豁免即可通过兼容性检查（安装与启动共用同一判定器）。
 - dsh 0.2.0 中 profile 级通配绑定（`webserver.host: 0.0.0.0`）会推导出 LAN 权威；本 patch 会保留它们，因此打印出的 LAN URL 无需额外 trusted-host 即可使用。
@@ -254,6 +267,7 @@ bundle 还带一个 Chrome 扩展和一个本地 bridge，把浏览器变成 dsh
 - 固定令牌依赖 `connection.browserAuth.launchToken` 字段。若 dsh 改变该结构，配置了令牌时插件会在启动阶段报错；取消令牌配置或升级插件即可。
 - 浏览器控制需要 Chrome 120+ 并以“加载已解压”方式装扩展；attach 期间因 `debugger` 权限会显示 Chrome 自动化提示条。无头服务器没有 Chrome，bridge 空转，工具返回 `bridge_disconnected`。
 - patch 按 `$DSH_HOME` 与 `$DSH_PROFILE` 解析 `bridge/index.js`；若启动 `dsh web` 时没有这两个变量，则回退到 `~/.dsh` 和 `web` profile。用其他 profile 名时需要设置这两个变量（上游 CLI 会导出它们）。
+- 近期输出速度的弹窗行依赖官方会话统计弹窗中的 `dl[data-session-stats-details]` 标记。若未来版本改名或改结构，输入框下方的胶囊仍然工作，只有该行静默消失。
 - 输入框回车改写依赖 dsh 内部 DOM 标记（`[data-composer-card]`、`[data-lexical-editor="true"]`、`[data-trigger-menu]`）。若未来 dsh 改名，监听器找不到输入框便静默失效，恢复上游“回车发送”，不会破坏页面。
 - 登录表单包装 `connection.authorizeIndex` 并读取 `browserAuth.isAuthenticated`。若未来 dsh 移除二者，表单会被跳过，裸地址恢复上游纯文本 `401`，插件其余功能继续工作。
 - 浏览器通知依赖客户端模块系统、`ctx.uiSession.sessionStatus` 与 `ctx.sessions`；若未来 dsh 移除其中任一项，客户端半边会静默失效，宿主半边继续工作。通知要求页面保持打开，没有 service worker 或 push 订阅。客户端会话列表会把原始 `parentSessionId` 字段投影到行上的 `parentId`；两种形状都会抑制带父链接的行，因此子会话行不会再发通知。
