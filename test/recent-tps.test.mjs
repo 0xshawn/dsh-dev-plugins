@@ -13,10 +13,11 @@ import {
 } from '../lib/recent-tps.js'
 
 /** One assistant message event carrying a compact stream. */
-function message(time, stream, outputTokens) {
+function message(time, stream, outputTokens, seq) {
   return {
     type: 'assistant/message',
     time,
+    ...(seq === undefined ? {} : { seq }),
     data: { turn: 1, step: 1, stream, ...(outputTokens === undefined ? {} : { usage: { outputTokens } }) },
   }
 }
@@ -76,6 +77,30 @@ test('the projection keeps one sample per settled step with token usage', () => 
   assert.equal(recentTpsProjection.apply(state, { type: 'tool/call', time: 9_000, data: { callId: 'c' } }), state)
 })
 
+test('a retried attempt keeps its earlier first token', () => {
+  const state = fold([
+    { type: 'step/start', time: 1_000, seq: 0, data: { turn: 1, step: 1 } },
+    // The first attempt streamed a token, then the request was retried.
+    {
+      type: 'assistant/attempt',
+      time: 2_000,
+      seq: 1,
+      data: { turn: 1, step: 1, stream: [chunk(1_500, { type: 'text-delta', text: 'a' })] },
+    },
+    // The assembled message belongs to the retry and starts much later.
+    message(9_000, [chunk(8_000, { type: 'text-delta', text: 'b' })], 90, 2),
+  ])
+  assert.deepEqual(state.samples, [{ firstTokenTime: 1_500, completedTime: 9_000, outputTokens: 90 }])
+  assert.equal(state.open, null)
+})
+
+test('fork-inherited events are skipped', () => {
+  const parent = message(5_000, [chunk(2_000, { type: 'text-delta', text: 'parent' })], 70, 3)
+  const own = message(9_000, [chunk(8_000, { type: 'text-delta', text: 'own' })], 20, 12)
+  const state = fold([parent, own], recentTpsProjection.init({}, 10))
+  assert.deepEqual(state.samples, [{ firstTokenTime: 8_000, completedTime: 9_000, outputTokens: 20 }])
+})
+
 test('the projection prunes the retention window and caps the sample list', () => {
   const base = 10 * RECENT_TPS_RETENTION_MS
   const events = [
@@ -102,6 +127,11 @@ test('the wire view reuses its reference while the samples are unchanged', () =>
   const empty = []
   assert.equal(recentTpsProjection.wire.view({ samples: empty }), recentTpsProjection.wire.view({ samples: empty }))
   assert.notEqual(recentTpsProjection.wire.view({ samples: empty }), recentTpsProjection.wire.view({ samples }))
+  // The view re-clips stale samples relative to the newest one.
+  const fresh = { firstTokenTime: 1_000, completedTime: 2_000, outputTokens: 4 }
+  const staleCompleted = fresh.completedTime - RECENT_TPS_RETENTION_MS - 1
+  const stale = { firstTokenTime: staleCompleted - 1, completedTime: staleCompleted, outputTokens: 3 }
+  assert.deepEqual(recentTpsProjection.wire.view({ samples: [stale, fresh] }), { samples: [fresh] })
   assert.equal(recentTpsProjection.wire.summary, false)
   assert.equal(recentTpsProjection.key, RECENT_TPS_PROJECTION_KEY)
   assert.equal(recentTpsProjection.wire.viewSchema.safeParse({ samples }).success, true)

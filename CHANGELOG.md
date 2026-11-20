@@ -9,11 +9,15 @@ Fix the recent-output-speed reading for paged Sessions.
   The paged Chat window cannot supply those: durable replay reports
   `timing.firstTokenTime: null` once a step's chunk events leave the loaded
   event window, so the 0.9.0 reading stayed hidden in long Sessions.
-- The projection keeps six minutes of samples (capped at 1024), pruned against
-  the event clock, and reaches the browser as a wire projection. The client
-  still falls back to the Chat nodes when the Host half predates it.
-- Tests cover compact-stream first-token extraction, retention and the sample
-  cap, the wire-view identity, and the sample fold.
+- The projection keeps six minutes of samples (capped at 512), pruned against
+  the event clock and re-clipped on read so an idle Session never ships a stale
+  tail, and reaches the browser as a wire projection. A retried step keeps the
+  first token from its earliest attempt, and a forked Session skips its
+  parent's inherited prefix. The client still falls back to the Chat nodes when
+  the Host half predates it.
+- Tests cover compact-stream first-token extraction, retry attempts, the fork
+  prefix, retention and the sample cap, the wire view's pruning and identity,
+  and the sample fold.
 
 ## 0.9.0 — 2026-11-21
 

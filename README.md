@@ -231,8 +231,12 @@ re-evaluates every five seconds.
 The samples come from a host-side session projection (`devPluginsRecentTps`)
 that keeps the first-token time of every settled step, because the browser's
 paged Chat window drops the streaming events and reports `firstTokenTime: null`
-for older history. When the Host half predates the projection, the client falls
-back to the Chat nodes it already has.
+for older history. A retried step keeps the first token its earliest attempt
+streamed, and a forked Session skips its parent's inherited prefix. The unit is
+registered once at boot, so the settings switch only controls the browser
+reading. When the Host half predates the projection (a hot-swapped client), the
+client falls back to the Chat nodes it already has; that fallback can stay
+empty for paged history.
 
 The dialog row is appended to the stock row list
 (`dl[data-session-stats-details]`) and borrows that list's styles, so it matches
@@ -434,8 +438,9 @@ The package is a dsh **bundle**: `cordis.patch.yml` is a patch layer over `@deep
 - The recent-output-speed row depends on two dsh seams: the
   `sessionProjections` registry (the `devPluginsRecentTps` wire unit) and the
   `dl[data-session-stats-details]` marker in the session-statistics dialog. If a
-  release drops either, the client falls back to the paged Chat nodes and the
-  pill keeps working; only the dialog row or the paged-session reading degrades.
+  release drops either, the dialog row disappears; a missing projection also
+  forces the client back to the paged Chat nodes, whose `firstTokenTime` is null
+  for older history, so the reading may stay hidden in long Sessions.
 - The composer Enter rewrite depends on dsh-internal DOM markers (`[data-composer-card]`, `[data-lexical-editor="true"]`, `[data-trigger-menu]`). If a future dsh release renames them, the listener finds no composer and silently no-ops, restoring stock Enter-sends; it never breaks the page.
 - The login form wraps `connection.authorizeIndex` and reads `browserAuth.isAuthenticated`. If a future dsh version removes either, the form is skipped and the bare URL answers the stock plain `401`; the rest of the plugin keeps working.
 - Browser notifications need the client module system plus `ctx.uiSession.sessionStatus` and `ctx.sessions`; if a future dsh version drops either, the client half stays inert while the Host half keeps working. The page must stay open for notifications; there is no service worker or push subscription. the client session list projects the raw `parentSessionId` field onto rows as `parentId`; both shapes suppress a row that carries a parent link, so subagent rows stop notifying.
