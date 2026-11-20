@@ -771,6 +771,53 @@ test('the recent-TPS reading registers one composer dock pill', async () => {
   }
 })
 
+test('the recent-TPS pill renders its reading and hides without one', async () => {
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+    useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useEffect: () => {},
+  }
+  const client = await loadClientBundle({ react })
+  const browser = installBrowser()
+  try {
+    let component
+    const fixture = fakeContext()
+    fixture.ctx.slots = {
+      inject: (seat, callback) => callback(),
+      register: (registration, registered) => {
+        component = registered
+        return () => {}
+      },
+    }
+    fixture.ctx.locale = {
+      register: () => () => {},
+      bind: () => (key, params) => (key === 'pill' ? `last 5 min ${params.tps} tok/s` : key),
+    }
+    assert.equal(client.__test.installRecentTpsWith(fixture.ctx), true)
+    assert.equal(typeof component, 'function')
+    const now = Date.now()
+    const nodes = [
+      { kind: 'assistant', timing: { firstTokenTime: now - 5_000, completedTime: now - 1_000 }, usage: { outputTokens: 100 } },
+    ]
+    const tree = component({ useChat: (selector) => selector({ legacy: { nodes } }) })
+    assert.equal(tree.props['data-composer-stat'], 'recent-tps')
+    const texts = []
+    const walk = (node) => {
+      if (typeof node === 'string') texts.push(node)
+      else if (Array.isArray(node)) node.forEach(walk)
+      else if (node !== null && typeof node === 'object') (node.children ?? []).forEach(walk)
+    }
+    walk(tree)
+    assert.ok(texts.includes('last 5 min 25 tok/s'))
+    assert.equal(component({ useChat: (selector) => selector({ legacy: { nodes: [] } }) }), null)
+    assert.equal(component({ useChat: (selector) => selector(undefined) }), null)
+    fixture.ctx.disposers.forEach((dispose) => dispose?.())
+  } finally {
+    client.__test.publishRecentTps(null)
+    browser.restore()
+  }
+})
+
 /** Minimal element stand-in for the session-statistics row injection. */
 function fakeElement(tagName) {
   return {
